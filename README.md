@@ -1,5 +1,8 @@
 
 # Mapping Sewage Discharges into rivers across England <!--and Wales-->
+
+![opengraphsocial](https://github.com/user-attachments/assets/45473ed6-309c-419a-b8fe-f70575043b2b)
+
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 
