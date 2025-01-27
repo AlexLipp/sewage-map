@@ -16,6 +16,12 @@ This was developed by [Alex Lipp](https://alexlipp.github.io/), [Jonny Dawe](htt
 [![GitHub followers](https://img.shields.io/github/followers/JonnyDawe?label=JonnyDawe&style=social)](https://github.com/JonnyDawe)
 [![GitHub followers](https://img.shields.io/github/followers/sudhir-b?label=sudhir-b&style=social)](https://github.com/sudhir-b)
 
+- [Installation](#installation)
+- [Usage](#usage)
+- [Output Data](#output-data)
+   - [Water Company Data Table](#water-company-data-table)
+- [Source Data](#source-data)
+
 ## Installation
 
 This script relies on the `POOPy` package which I ([Alex](https://alexlipp.github.io/)) have created to allow easy interaction with Water Company Event Duration Monitoring (EDM) APIs, and analysis of the data. This is freely available at: [`github.com/AlexLipp/POOPy`](https://github.com/AlexLipp/POOPy).
@@ -34,6 +40,8 @@ The live downstream impact of Combined Sewage Overflow (CSO) discharge events **
 The _Downstream impacted reaches_ is a `LineString` feature-collection simply showing the sections of a river which are downstream of current discharges, and optionally those in the last 48 hrs. These are the brown lines on `www.sewagemap.co.uk`. 
 
 The _Downstream Impact Information_ is a `Point` feature-collection which details at each pixel in a drainage network 1) the number of discharges upstream, 2) the number of discharges per unit of upstream area, and 3) A list of the names (or permit numbers) of discharging CSOs upstream.  
+
+### Water Company Data Table
 
  **Disclaimer: whilst we make every effort to ensure the accuracy of this data, we cannot guarantee it and it should not be used for any critical purposes.**  
 
