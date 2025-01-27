@@ -33,9 +33,9 @@ The core script is `update_all.py` which is called automatically every 15 minute
 The script `update.py` is included for legacy purposes, and updates only Thames Water data (but is needed for the historical data provided only by Thames).
 
 ## Output data
- [![License:CC BY NC SA](https://licensebuttons.net/l/by-nc-sa/4.0/88x31.png)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+ [![License:CC BY SA](https://licensebuttons.net/l/by-sa/4.0/88x31.png)](https://creativecommons.org/licenses/by-sa/4.0/)
 
-The live downstream impact of Combined Sewage Overflow (CSO) discharge events **is freely available** under a [CC-BY-NC-SA](https://creativecommons.org/licenses/by-nc-sa/4.0/) license. The links in the table below give access to the data as `.geoJSON` files. The data are updated automatically every ~20 minutes (but the URL remains the same). These can be incorporated into your own projects, web-apps, or GIS projects but please attribute the source as `www.sewagemap.co.uk`. It'd be wonderful to hear about any projects you use this data in, so please do [reach out to me](https://alexlipp.github.io/) to let me know, or if I can be of any assistance.
+The live downstream impact of Combined Sewage Overflow (CSO) discharge events **is freely available** under a [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/) license. The links in the table below give access to the data as `.geoJSON` files. The data are updated automatically every ~20 minutes (but the URL remains the same). These can be incorporated into your own projects, web-apps, or GIS projects but please attribute the source as `www.sewagemap.co.uk`. It'd be wonderful to hear about any projects you use this data in, so please do [reach out to me](https://alexlipp.github.io/) to let me know, or if I can be of any assistance.
 
 The _Downstream impacted reaches_ is a `LineString` feature-collection simply showing the sections of a river which are downstream of current discharges, and optionally those in the last 48 hrs. These are the brown lines on `www.sewagemap.co.uk`. 
 
