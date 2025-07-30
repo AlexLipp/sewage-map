@@ -43,7 +43,10 @@ AWS_GEOJSON_FILENAME_EXCL_48HRS = "now_excl_48hrs.geojson"
 AWS_INFO_GEOJSON_FILENAME = "info_now_incl_48hrs.geojson"
 # Name of the info geojson files in the AWS bucket for information on downstream impact of current spills
 AWS_INFO_GEOJSON_FILENAME_EXCL_48HRS = "info_now_excl_48hrs.geojson"
-
+# Name of the log file
+LOCAL_LOG = "downstream.log"
+# Name of the AWS log folder
+AWS_LOG_DIR = "downstream_log/"
 # Name of the timestamp files in the AWS bucket for information on downstream impact of current spills
 TIMESTAMP_FILENAME = "timestamp.txt"
 
@@ -77,6 +80,7 @@ watercompanies = [
 # AWS folder name (e.g. "downstream_impact/water_company/").
 
 startime = datetime.now()
+print("Starting @", datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
 
 watercompany_info = {}
 for company in watercompanies:
@@ -260,3 +264,16 @@ print(f"Current time: {datetime.now().isoformat(timespec='seconds')}")
 runtime = endtime - startime
 print(f"Total runtime: {runtime.seconds//60} minutes {runtime.seconds%60} seconds")
 print("#" * 50)
+
+print("Uploading cron-log...")
+
+# Empty the log folder
+empty_s3_folder(
+    bucket_name=BUCKET_NAME, folder_name=AWS_LOG_DIR, profile_name=PROFILE_NAME
+)
+upload_file_to_s3(
+    file_path=LOCAL_LOG,
+    bucket_name=BUCKET_NAME,
+    object_name=AWS_LOG_DIR + LOCAL_LOG,
+    profile_name=PROFILE_NAME,
+)
