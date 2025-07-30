@@ -61,7 +61,6 @@ LOCAL_GEOJSON_DIR = LOCAL_OUTPUT_DIR + "geojsons/"
 
 watercompanies = [
     "thames",  # Thames Water
-    "welsh",  # Welsh Water
     "southern",  # Southern Water
     "anglian",  # Anglian Water
     "united",  # United Utilities
@@ -70,6 +69,7 @@ watercompanies = [
     "yorkshire",  # Yorkshire Water
     "northumbrian",  # Northumbrian Water
     "wessex",  # Wessex Water
+    "welsh",  # Welsh Water
 ]
 
 # Create a nested dictionary to store info for each watercompany. Each watercompany will have a dictionary with the following keys:
@@ -116,20 +116,8 @@ for company in watercompanies:
 
 
 now = datetime.now()
-# Add timestamp file to now folder
-write_timestamp(
-    datetime_string=now.isoformat(timespec="seconds"),
-    timestamp_filename=LOCAL_OUTPUT_DIR + "downstream_impact/global_timestamp.txt",
-)
-upload_file_to_s3(
-    file_path=LOCAL_OUTPUT_DIR + "downstream_impact/global_timestamp.txt",
-    bucket_name=BUCKET_NAME,
-    object_name="downstream_impact/global_timestamp.txt",
-    profile_name=PROFILE_NAME,
-)
 
 # Now we loop through each water company in the dictionary and calculate the downstream impact of spills
-
 # We suppress warnings to avoid cluttering the output.
 warnings.filterwarnings("ignore")
 for company, data in watercompany_info.items():
@@ -249,6 +237,18 @@ for company, data in watercompany_info.items():
     print("Cleaning up local directory...")
     for file in os.listdir(local_output_dir):
         os.remove(local_output_dir + file)
+
+# Add timestamp file to now folder ONLY AFTER SUCCESSFULLY UPDATING ALL OF THE WATER COMPANIES
+write_timestamp(
+    datetime_string=now.isoformat(timespec="seconds"),
+    timestamp_filename=LOCAL_OUTPUT_DIR + "downstream_impact/global_timestamp.txt",
+)
+upload_file_to_s3(
+    file_path=LOCAL_OUTPUT_DIR + "downstream_impact/global_timestamp.txt",
+    bucket_name=BUCKET_NAME,
+    object_name="downstream_impact/global_timestamp.txt",
+    profile_name=PROFILE_NAME,
+)
 
 endtime = datetime.now()
 
