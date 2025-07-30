@@ -3,6 +3,7 @@ from datetime import datetime
 from geojson import Feature, FeatureCollection
 import json
 import os
+import time
 import warnings
 
 from aux_funcs import (
@@ -265,6 +266,9 @@ runtime = endtime - startime
 print(f"Total runtime: {runtime.seconds//60} minutes {runtime.seconds%60} seconds")
 print("#" * 50)
 
+
+# Pause for 1 minute before uploading the cron-log
+time.sleep(60)
 print("Uploading cron-log...")
 
 # Empty the log folder
