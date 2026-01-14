@@ -51,13 +51,6 @@ AWS_LOG_DIR = "downstream_log/"
 # Name of the timestamp files in the AWS bucket for information on downstream impact of current spills
 TIMESTAMP_FILENAME = "timestamp.txt"
 
-tw_clientID = os.getenv("TW_CLIENT_ID")
-tw_clientSecret = os.getenv("TW_CLIENT_SECRET")
-if tw_clientID is None or tw_clientSecret is None:
-    raise ValueError(
-        "Thames Water API keys are missing from the environment!\n Please set them and try again."
-    )
-
 # Local directory to save outputs to
 LOCAL_OUTPUT_DIR = "output_dir/"
 # Local directory to save geojsons to
@@ -91,9 +84,7 @@ for company in watercompanies:
     )
     watercompany_info[company]["aws_folder_name"] = "downstream_impact/" + company + "/"
     if company == "thames":
-        watercompany_info[company]["WaterCompany"] = ThamesWater(
-            tw_clientID, tw_clientSecret
-        )
+        watercompany_info[company]["WaterCompany"] = ThamesWater()
     elif company == "welsh":
         watercompany_info[company]["WaterCompany"] = WelshWater()
     elif company == "southern":

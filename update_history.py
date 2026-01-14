@@ -162,15 +162,9 @@ def main():
     print("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
     startime = datetime.now()
     print("Starting @", datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-    tw_clientID = os.getenv("TW_CLIENT_ID")
-    tw_clientSecret = os.getenv("TW_CLIENT_SECRET")
-    if tw_clientID is None or tw_clientSecret is None:
-        raise ValueError(
-            "Thames Water API keys are missing from the environment!\n Please set them and try again."
-        )
     now = datetime.now()
     geojson_file_name = now.strftime("%y%m%d_%H%M%S.geojson")
-    tw = ThamesWater(tw_clientID, tw_clientSecret)
+    tw = ThamesWater()
 
     print("Calculating current downstream discharge extent...")
     geojson = tw.get_downstream_geojson(include_recent_discharges=True)
