@@ -6,7 +6,7 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 
 
-Realtime mapping the downstream impact of Combined Sewage Overflow discharge events in non-tidal rivers across England <!--and Wales-->. This repository provides the back-end for [`www.sewagemap.co.uk`](https://www.sewagemap.co.uk/). The repository  for the front-end is available at [`github.com/JonnyDawe/UK-Sewage-Map/`](https://github.com/JonnyDawe/UK-Sewage-Map/).
+Realtime mapping the downstream impact of Combined Sewage Overflow discharge events in non-tidal rivers across England and Scotland <!--and Wales-->. This repository provides the back-end for [`www.sewagemap.co.uk`](https://www.sewagemap.co.uk/). The repository  for the front-end is available at [`github.com/JonnyDawe/UK-Sewage-Map/`](https://github.com/JonnyDawe/UK-Sewage-Map/).
 
 This was developed by [Alex Lipp](https://alexlipp.github.io/), [Jonny Dawe](https://www.linkedin.com/in/jonathan-dawe-46180212a) and Sudhir Balaji. Please feel free to raise an issue above or contact us directly.
 
@@ -56,6 +56,7 @@ Severn Trent Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/down
 Wessex Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_timestamp.txt)
 Yorkshire Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_timestamp.txt)
 SouthWest Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_timestamp.txt)
+Scottish Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/scottish/scottish_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/scottish/scottish_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/scottish/scottish_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/scottish/scottish_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/scottish/scottish_timestamp.txt)
  <!--Welsh Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_timestamp.txt)-->
 
 ### Thames Water historical data 
@@ -64,4 +65,10 @@ We process the Thames Water historical spill API which records stop/start event 
  
 ## Source data 
 
-The live EDM data which we use to map downstream sectons is sourced, in England, from the [Stream Storm Overflow Data Hub](https://www.streamwaterdata.co.uk/pages/storm-overflows-data) which is provided under a CC-BY license. Each individual water company maintain's an individual API which you can access from the given link. <!-- For Wales, we use data presented on the [WelshWater Storm Overflow map](https://corporate.dwrcymru.com/en/community/environment/storm-overflow-map).-->
+The live EDM data used to map downstream sections is sourced as follows:
+
+- In England, from the [Stream Storm Overflow Data Hub](https://www.streamwaterdata.co.uk/pages/storm-overflows-data), which is provided under a CC-BY license.
+- For Thames Water, from the [Thames Water API](https://data.thameswater.co.uk/s/).
+- In Scotland, from the [Scottish Water API](https://www.scottishwater.co.uk/Help-and-Resources/Open-Data/Overflow-Map-Data).
+
+<!-- For Wales, we use data presented on the [WelshWater Storm Overflow map](https://corporate.dwrcymru.com/en/community/environment/storm-overflow-map).-->
