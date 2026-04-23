@@ -16,6 +16,7 @@ from aux_funcs import (
 from poopy.companies import (
     AnglianWater,
     NorthumbrianWater,
+    ScottishWater,
     SevernTrentWater,
     SouthWestWater,
     SouthernWater,
@@ -66,6 +67,7 @@ watercompanies = [
     "yorkshire",  # Yorkshire Water
     "northumbrian",  # Northumbrian Water
     "wessex",  # Wessex Water
+    "scottish",  # Scottish Water
     "welsh",  # Welsh Water
 ]
 
@@ -103,6 +105,8 @@ for company in watercompanies:
         watercompany_info[company]["WaterCompany"] = NorthumbrianWater()
     elif company == "wessex":
         watercompany_info[company]["WaterCompany"] = WessexWater()
+    elif company == "scottish":
+        watercompany_info[company]["WaterCompany"] = ScottishWater()
 
 # For each water company check that local output directory exists and create it if it doesn't
 for company in watercompanies:
