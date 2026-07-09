@@ -41,3 +41,20 @@ The live EDM data used to map downstream sections is sourced as follows:
 - In Scotland, from the [Scottish Water API](https://www.scottishwater.co.uk/Help-and-Resources/Open-Data/Overflow-Map-Data).
 
 <!-- For Wales, we use data presented on the [WelshWater Storm Overflow map](https://corporate.dwrcymru.com/en/community/environment/storm-overflow-map).-->
+
+## Building historical company JSON
+
+Cleaned EDM CSVs in `edm_data/<company>/` can be enriched with current Stream API
+metadata and converted to the same column-oriented JSON contract as
+`edm_data/thames.json`:
+
+```shell
+python -m pip install -r requirements-company-json.txt
+python scripts/build_company_json.py --company yorkshire --refresh-api
+python scripts/build_company_json.py --company all --incremental
+```
+
+Outputs, API caches, per-input intermediates, manifests, missing-ID reports, and
+build summaries are written below `outputs/`. A final company JSON is not written
+when fewer than 95% of event rows match API metadata unless `--allow-low-match`
+is explicitly supplied.
