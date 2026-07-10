@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -255,54 +256,27 @@ def to_number(value: Any) -> float | None:
 
 
 def in_bng_bounds(x_value: float, y_value: float) -> bool:
-    """Check whether numeric eastings/northings fall inside the British National Grid."""
+    """Check whether eastings/northings fall inside the British National Grid."""
     return 0 <= x_value <= 700000 and 0 <= y_value <= 1300000
 
 
-def in_lonlat_bounds(lon: float, lat: float) -> bool:
-    """Check whether a numeric lon/lat pair falls inside the UK bounding box."""
-    return -8.5 <= lon <= 2.5 and 49 <= lat <= 61
-
-
-def valid_bng(x_value: Any, y_value: Any) -> bool:
-    """Check if a pair of values are valid British National Grid coordinates."""
-    x_num = to_number(x_value)
-    y_num = to_number(y_value)
-    return x_num is not None and y_num is not None and in_bng_bounds(x_num, y_num)
-
-
-def first_geometry_lonlat(feature: dict[str, Any]) -> tuple[float | None, float | None]:
-    """Extract the first lon/lat coordinate from a GeoJSON feature's geometry."""
-    geometry = feature.get("geometry") or {}
-    coordinates = geometry.get("coordinates")
-    if not isinstance(coordinates, list):
-        return None, None
-
-    # GeoJSON point coordinates are [longitude, latitude]. If a service returns
-    # a line or polygon, walk down to the first coordinate pair.
-    current = coordinates
-    while isinstance(current, list) and current and isinstance(current[0], list):
-        current = current[0]
-
-    if not isinstance(current, list) or len(current) < 2:
-        return None, None
-
-    lon = to_number(current[0])
-    lat = to_number(current[1])
-    if lon is None or lat is None or not in_lonlat_bounds(lon, lat):
-        return None, None
-    return lon, lat
-
-
 def convert_lonlat_to_bng(lon: Any, lat: Any, transformer: Transformer) -> tuple[int | None, int | None]:
-    """Convert WGS84 lon/lat to British National Grid eastings/northings."""
+    """
+    Convert WGS84 lon/lat to British National Grid eastings/northings.
+
+    The result is not range-checked: a site the company has mislocated is
+    converted and returned as-is, for the caller to report on. Only values that
+    cannot be projected at all yield None, which pyproj signals with a
+    non-finite result (an absurd latitude, say) and which round() would
+    otherwise raise OverflowError on.
+    """
     lon_num = to_number(lon)
     lat_num = to_number(lat)
-    if lon_num is None or lat_num is None or not in_lonlat_bounds(lon_num, lat_num):
+    if lon_num is None or lat_num is None:
         return None, None
 
     x_value, y_value = transformer.transform(lon_num, lat_num)
-    if not in_bng_bounds(x_value, y_value):
+    if not math.isfinite(x_value) or not math.isfinite(y_value):
         return None, None
     return round(x_value), round(y_value)
 
@@ -311,14 +285,10 @@ def extract_coordinates(
     feature: dict[str, Any],
     transformer: Transformer,
 ) -> tuple[int | None, int | None]:
-    """Extract coordinates from a GeoJSON feature, converting to BNG if necessary."""
+    """Project a feature's lon/lat properties to British National Grid."""
     props = feature_properties(feature)
-
-    lon = to_number(get_property(props, API_LON_FIELD))
-    lat = to_number(get_property(props, API_LAT_FIELD))
-    if lon is None or lat is None or not in_lonlat_bounds(lon, lat):
-        lon, lat = first_geometry_lonlat(feature)
-
+    lon = get_property(props, API_LON_FIELD)
+    lat = get_property(props, API_LAT_FIELD)
     return convert_lonlat_to_bng(lon, lat, transformer)
 
 
@@ -337,6 +307,20 @@ def build_api_lookup(
             continue
 
         x_value, y_value = extract_coordinates(feature, transformer)
+        if x_value is None or y_value is None:
+            logger.warning(
+                "btw, %s has no projectable lon/lat in the API; X and Y will be null",
+                raw_id,
+            )
+        elif not in_bng_bounds(x_value, y_value):
+            logger.warning(
+                "btw, %s converts to (%s, %s), outside the British National Grid; "
+                "keeping it as published",
+                raw_id,
+                x_value,
+                y_value,
+            )
+
         watercourse = get_property(props, API_WATERCOURSE_FIELD)
         record = {
             "feature": feature,
@@ -502,12 +486,15 @@ def validate_output_json(json_path: Path) -> dict[str, bool]:
 
     duration_numeric = numeric_or_null("Duration")
     xy_numeric = numeric_or_null("X") and numeric_or_null("Y")
+    # Reported, but deliberately not part of `passed`: a company that publishes a
+    # mislocated site has already been warned about by name, and we pass its
+    # coordinates through rather than second-guessing them.
     xy_bng = True
     for row_key, x_value in data["X"].items():
         y_value = data["Y"].get(row_key)
-        if x_value is None and y_value is None:
+        if x_value is None or y_value is None:
             continue
-        if not valid_bng(x_value, y_value):
+        if not in_bng_bounds(x_value, y_value):
             xy_bng = False
             break
 
@@ -530,7 +517,6 @@ def validate_output_json(json_path: Path) -> dict[str, bool]:
                 datetime_epoch_ms,
                 duration_numeric,
                 xy_numeric,
-                xy_bng,
                 ongoing_false,
             ]
         ),
@@ -602,7 +588,7 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
     logger.info("  JSON keys match: %s", validation["keys_match"])
     logger.info("  JSON orientation matches: %s", validation["orientation_matches"])
     logger.info("  StartDateTime/StopDateTime are epoch milliseconds: %s", validation["datetime_epoch_ms"])
-    logger.info("  X/Y are British National Grid values, not lon/lat: %s", validation["xy_bng"])
+    logger.info("  All X/Y fall inside the British National Grid: %s", validation["xy_bng"])
     logger.info("  OngoingEvent is boolean false: %s", validation["ongoing_false"])
 
 
