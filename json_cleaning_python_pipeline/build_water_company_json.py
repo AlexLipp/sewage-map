@@ -7,8 +7,8 @@ How to run in VS Code:
 2. Put stop/start CSV files inside the correct input_stopstart_data/{company} folder.
 3. Run build_water_company_json.py.
 4. Read the printed validation summary before trusting the JSON.
-5. Start with ONLY_COMPANIES = ["anglian"].
-6. Once Anglian validates, change ONLY_COMPANIES = None to process all companies.
+5. Set ONLY_COMPANIES to the companies you want to process. The comment beside
+   it lists all eight, to paste in when you want the lot.
 
 The pipeline reads input_stopstart_data/ and writes one JSON per company to
 outputs/. It writes nothing else: API responses are fetched fresh each run and
@@ -36,7 +36,10 @@ from pyproj import Transformer
 # Configuration
 # ---------------------------------------------------------------------------
 
-ONLY_COMPANIES = ["yorkshire","southern_water", "anglian", "northumbrian", "severn_trent", "south_west_water", "united_utilities", "wessex"]
+# Companies to process this run. For all of them:
+# ["anglian", "northumbrian", "severn_trent", "south_west_water",
+#  "southern_water", "united_utilities", "wessex", "yorkshire"]
+ONLY_COMPANIES = ["yorkshire", "southern_water"]
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 INPUT_ROOT = PROJECT_ROOT / "input_stopstart_data"
