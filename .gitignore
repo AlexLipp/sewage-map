@@ -8,4 +8,4 @@ gmt.history
 working.ipynb
 __pycache__/
 outputs/
-!requirements-company-json.txt
+!requirements.txt
