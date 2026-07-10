@@ -4,11 +4,15 @@ Reusable EDM CSV to sewagemap JSON pipeline.
 How to run in VS Code:
 1. Install requirements:
    pip install -r requirements.txt
-2. Put standardised CSV files inside the correct standardised_data/{company}_data folder.
+2. Put stop/start CSV files inside the correct input_stopstart_data/{company} folder.
 3. Run build_water_company_json.py.
-4. Inspect outputs/qc before trusting the JSON.
+4. Read the printed validation summary before trusting the JSON.
 5. Start with ONLY_COMPANIES = ["anglian"].
 6. Once Anglian validates, change ONLY_COMPANIES = None to process all companies.
+
+The pipeline reads input_stopstart_data/ and writes one JSON per company to
+outputs/. It writes nothing else: API responses are fetched fresh each run and
+QC is reported to stdout.
 
 The target output schema is declared by OUTPUT_COLUMNS below. It is the single
 source of truth: the JSON is built from it and validated against it.
@@ -32,11 +36,10 @@ from pyproj import Transformer
 # Configuration
 # ---------------------------------------------------------------------------
 
-REFRESH_API_CACHE = False
-ONLY_COMPANIES = ["yorkshire"]
+ONLY_COMPANIES = ["yorkshire","southern_water", "anglian", "northumbrian", "severn_trent", "south_west_water", "united_utilities", "wessex"]
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-INPUT_ROOT = PROJECT_ROOT / "standardised_data"
+INPUT_ROOT = PROJECT_ROOT / "input_stopstart_data"
 OUTPUT_ROOT = PROJECT_ROOT / "outputs"
 
 LOCAL_TIMEZONE = "Europe/London"
@@ -111,9 +114,8 @@ API_LON_FIELD = "Longitude"
 API_WATERCOURSE_FIELD = "ReceivingWaterCourse"
 
 
-def ensure_output_folders() -> None:
-    for folder in ["csv_clean", "json", "qc", "api_cache"]:
-        (OUTPUT_ROOT / folder).mkdir(parents=True, exist_ok=True)
+def ensure_output_folder() -> None:
+    OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def clean_arcgis_url(url: str) -> tuple[str, dict[str, Any]]:
@@ -183,22 +185,6 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
     }
     print(f"Fetched {len(all_features)} API features for {company}.")
     return full_payload
-
-
-def load_or_fetch_api_data(company: str, api_url: str) -> dict[str, Any]:
-    cache_path = OUTPUT_ROOT / "api_cache" / f"{company}_api.geojson"
-
-    if cache_path.exists() and not REFRESH_API_CACHE:
-        with cache_path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-        print(f"Loaded cached API data for {company}: {len(payload.get('features', []))} features.")
-        return payload
-
-    payload = fetch_arcgis_geojson(company, api_url)
-    with cache_path.open("w", encoding="utf-8") as handle:
-        json.dump(payload, handle)
-    print(f"Saved API cache: {cache_path}")
-    return payload
 
 
 def normalise_permit(value: Any) -> str:
@@ -556,15 +542,6 @@ def validate_output_json(json_path: Path) -> dict[str, bool]:
     }
 
 
-def write_qc_reports(company: str, summary: dict[str, Any], match_report: pd.DataFrame) -> None:
-    summary_path = OUTPUT_ROOT / "qc" / f"{company}_summary.csv"
-    match_path = OUTPUT_ROOT / "qc" / f"{company}_match_report.csv"
-
-    pd.DataFrame([summary]).to_csv(summary_path, index=False)
-    match_report.to_csv(match_path, index=False)
-    print(f"Wrote QC reports: {summary_path.name}, {match_path.name}")
-
-
 def empty_company_summary(company: str, csv_files: list[Path], message: str) -> dict[str, Any]:
     return {
         "company": company,
@@ -612,11 +589,9 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
     if raw_df.empty:
         message = "; ".join(load_errors) if load_errors else "No input rows found."
         print(f"Skipping {company}: {message}")
-        summary = empty_company_summary(company, csv_files, message)
-        write_qc_reports(company, summary, pd.DataFrame())
-        return summary
+        return empty_company_summary(company, csv_files, message)
 
-    api_payload = load_or_fetch_api_data(company, config["api"])
+    api_payload = fetch_arcgis_geojson(company, config["api"])
     features = api_payload.get("features") or []
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
 
@@ -697,10 +672,7 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
 
     output_df = renamed[OUTPUT_COLUMNS].copy()
 
-    csv_path = OUTPUT_ROOT / "csv_clean" / f"{company}_enriched.csv"
-    json_path = OUTPUT_ROOT / "json" / f"{company}.json"
-
-    output_df.to_csv(csv_path, index=False)
+    json_path = OUTPUT_ROOT / f"{company}.json"
     output_df.to_json(json_path, orient="columns")
 
     validation = validate_output_json(json_path)
@@ -736,9 +708,6 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
         "error_message": "; ".join(load_errors),
     }
 
-    write_qc_reports(company, summary, match_report)
-
-    print(f"Wrote enriched CSV: {csv_path}")
     print(f"Wrote JSON: {json_path}")
     print(f"\nFirst 3 enriched rows for {company}:")
     print(output_df.head(3).to_string(index=False))
@@ -759,7 +728,7 @@ def selected_companies() -> list[str]:
 def main() -> None:
     print("Starting reusable EDM CSV to JSON pipeline.")
     print(f"Target output schema: {OUTPUT_COLUMNS}")
-    ensure_output_folders()
+    ensure_output_folder()
 
     summaries = []
     for company in selected_companies():
@@ -767,21 +736,14 @@ def main() -> None:
             summaries.append(enrich_company(company, COMPANIES[company]))
         except Exception as exc:
             print(f"ERROR: {company} failed, continuing to next company. Details: {exc}")
-            summary = empty_company_summary(company, [], str(exc))
-            write_qc_reports(company, summary, pd.DataFrame())
-            summaries.append(summary)
-
-    overall_path = OUTPUT_ROOT / "qc" / "overall_summary.csv"
-    overall = pd.DataFrame(summaries)
-    overall.to_csv(overall_path, index=False)
+            summaries.append(empty_company_summary(company, [], str(exc)))
 
     print("\n=== Pipeline complete ===")
-    print(f"CSV outputs:  {OUTPUT_ROOT / 'csv_clean'}")
-    print(f"JSON outputs: {OUTPUT_ROOT / 'json'}")
-    print(f"QC outputs:   {OUTPUT_ROOT / 'qc'}")
-    print(f"API cache:    {OUTPUT_ROOT / 'api_cache'}")
-    print(f"Overall QC:   {overall_path}")
+    print(f"JSON outputs: {OUTPUT_ROOT}")
+
+    overall = pd.DataFrame(summaries)
     if not overall.empty:
+        # QC is reported to stdout only: the pipeline writes JSON and nothing else.
         print("\nValidation summary:")
         print(overall[["company", "total_output_rows", "matched_rows", "unmatched_rows", "json_validation_passed"]].to_string(index=False))
 
