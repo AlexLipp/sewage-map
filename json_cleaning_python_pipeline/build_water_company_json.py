@@ -62,7 +62,7 @@ OUTPUT_COLUMNS = [
     "Duration",
     "OngoingEvent",
 ]
-
+# Required columns in the input CSVs. The pipeline will fail if any are missing.
 REQUIRED_INPUT_COLUMNS = [
     "location_name",
     "permit_number",
@@ -71,6 +71,11 @@ REQUIRED_INPUT_COLUMNS = [
     "duration_minutes",
 ]
 
+# URLs of the ArcGIS REST API endpoints for each water company. Each endpoint
+# returns a GeoJSON FeatureCollection of storm overflow locations, with a
+# Point geometry and properties including the permit number, coordinates and
+# receiving watercourse. The pipeline fetches all pages of each endpoint and
+# builds a lookup of permit numbers to coordinates and watercourses.
 COMPANIES: dict[str, str] = {
     "anglian": "https://services3.arcgis.com/VCOY1atHWVcDlvlJ/arcgis/rest/services/stream_service_outfall_locations_view/FeatureServer/0/query",
     "northumbrian": "https://services-eu1.arcgis.com/MSNNjkZ51iVh8yBj/arcgis/rest/services/Northumbrian_Water_Storm_Overflow_Activity_2_view/FeatureServer/0/query",
@@ -227,23 +232,21 @@ def to_number(value: Any) -> float | None:
         return None
 
 
+def in_bng_bounds(x_value: float, y_value: float) -> bool:
+    """Check whether numeric eastings/northings fall inside the British National Grid."""
+    return 0 <= x_value <= 700000 and 0 <= y_value <= 1300000
+
+
+def in_lonlat_bounds(lon: float, lat: float) -> bool:
+    """Check whether a numeric lon/lat pair falls inside the UK bounding box."""
+    return -8.5 <= lon <= 2.5 and 49 <= lat <= 61
+
+
 def valid_bng(x_value: Any, y_value: Any) -> bool:
     """Check if a pair of values are valid British National Grid coordinates."""
     x_num = to_number(x_value)
     y_num = to_number(y_value)
-    return (
-        x_num is not None
-        and y_num is not None
-        and 0 <= x_num <= 700000
-        and 0 <= y_num <= 1300000
-    )
-
-
-def valid_lonlat(lon: Any, lat: Any) -> bool:
-    """Check if a pair of values are valid WGS84 longitude and latitude."""
-    lon_num = to_number(lon)
-    lat_num = to_number(lat)
-    return lon_num is not None and lat_num is not None and -8.5 <= lon_num <= 2.5 and 49 <= lat_num <= 61
+    return x_num is not None and y_num is not None and in_bng_bounds(x_num, y_num)
 
 
 def first_geometry_lonlat(feature: dict[str, Any]) -> tuple[float | None, float | None]:
@@ -259,20 +262,25 @@ def first_geometry_lonlat(feature: dict[str, Any]) -> tuple[float | None, float 
     while isinstance(current, list) and current and isinstance(current[0], list):
         current = current[0]
 
-    if isinstance(current, list) and len(current) >= 2 and valid_lonlat(current[0], current[1]):
-        return float(current[0]), float(current[1])
-    return None, None
+    if not isinstance(current, list) or len(current) < 2:
+        return None, None
 
-
+    lon = to_number(current[0])
+    lat = to_number(current[1])
+    if lon is None or lat is None or not in_lonlat_bounds(lon, lat):
+        return None, None
+    return lon, lat
 
 
 def convert_lonlat_to_bng(lon: Any, lat: Any, transformer: Transformer) -> tuple[int | None, int | None]:
     """Convert WGS84 lon/lat to British National Grid eastings/northings."""
-    if not valid_lonlat(lon, lat):
+    lon_num = to_number(lon)
+    lat_num = to_number(lat)
+    if lon_num is None or lat_num is None or not in_lonlat_bounds(lon_num, lat_num):
         return None, None
 
-    x_value, y_value = transformer.transform(float(lon), float(lat))
-    if not valid_bng(x_value, y_value):
+    x_value, y_value = transformer.transform(lon_num, lat_num)
+    if not in_bng_bounds(x_value, y_value):
         return None, None
     return round(x_value), round(y_value)
 
@@ -284,9 +292,9 @@ def extract_coordinates(
     """Extract coordinates from a GeoJSON feature, converting to BNG if necessary."""
     props = feature_properties(feature)
 
-    lon = get_property(props, API_LON_FIELD)
-    lat = get_property(props, API_LAT_FIELD)
-    if not valid_lonlat(lon, lat):
+    lon = to_number(get_property(props, API_LON_FIELD))
+    lat = to_number(get_property(props, API_LAT_FIELD))
+    if lon is None or lat is None or not in_lonlat_bounds(lon, lat):
         lon, lat = first_geometry_lonlat(feature)
 
     return convert_lonlat_to_bng(lon, lat, transformer)
