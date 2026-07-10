@@ -1,22 +1,42 @@
 """
-Reusable EDM CSV to sewagemap JSON pipeline.
+Convert water-company EDM stop/start records into sewagemap JSON.
 
-How to run in VS Code:
-1. Install requirements:
-   pip install -r requirements.txt
-2. Put stop/start CSV files inside input_stopstart_data/{company}/, where
-   {company} is exactly one of the keys of COMPANIES below.
-3. Run build_water_company_jsons.py.
-4. Read the printed validation summary before trusting the JSON.
-5. Set ONLY_COMPANIES to the companies you want to process. The comment beside
-   it lists all eight, to paste in when you want the lot.
+Water companies publish historical Event Duration Monitoring (EDM) records, in
+response to EIR requests, as CSVs of discharge events: a site name, a permit
+number, a start and stop time, and a duration. They carry no location. The Stream
+Storm Overflow Hub publishes the missing half: for each permit, a position and
+the watercourse it discharges into. This script joins the two.
 
-The pipeline reads input_stopstart_data/ and writes one JSON per company to
-output_jsons/. It writes nothing else: API responses are fetched fresh each run and
-QC is reported to stdout.
+For each company in ONLY_COMPANIES it reads every CSV in
+input_stopstart_data/{company}/, fetches that company's Storm Overflow Hub
+endpoint, and joins events to sites on the permit number. It then writes
+output_jsons/{company}.json, whose schema is declared by OUTPUT_COLUMNS below.
+OUTPUT_COLUMNS is the single source of truth: the JSON is built from it and
+validated against it.
 
-The target output schema is declared by OUTPUT_COLUMNS below. It is the single
-source of truth: the JSON is built from it and validated against it.
+Along the way the script:
+
+- projects the API's WGS84 lon/lat onto the British National Grid, since that is
+  what the front end plots;
+- reads the CSVs' naive timestamps as UK local time, BST included, and converts
+  them to epoch milliseconds;
+- sets OngoingEvent false on every row, because these are historical records.
+
+It transcribes rather than corrects. Nothing is silently dropped or repaired:
+a permit with no match in the Hub, a site the company has placed outside the
+grid, and an ID the Hub publishes twice are each reported by name on stdout, and
+processing continues. A permit that matches nothing keeps its event rows, with
+null X, Y and ReceivingWaterCourse. Read the warnings and the closing validation
+summary before publishing a file.
+
+Matching is exact. Permits and API IDs are compared after trimming, uppercasing
+and collapsing internal whitespace, and in no other way.
+
+output_jsons/{company}.json is the only thing written. API responses are fetched
+fresh on each run and never cached, and no intermediate CSVs are produced.
+
+See README.md for how to run the script, the input format it expects, and where
+the source data comes from.
 """
 
 from __future__ import annotations
@@ -108,6 +128,7 @@ class LevelPrefixFormatter(logging.Formatter):
     """Print INFO lines bare, and prefix anything more severe with its level."""
 
     def format(self, record: logging.LogRecord) -> str:
+        """Render a record, prefixing its level name when more severe than INFO."""
         message = super().format(record)
         if record.levelno <= logging.INFO:
             return message
@@ -115,6 +136,7 @@ class LevelPrefixFormatter(logging.Formatter):
 
 
 def configure_logging() -> None:
+    """Send INFO and above to stdout, bare for INFO and level-prefixed above it."""
     handler = logging.StreamHandler()
     handler.setFormatter(LevelPrefixFormatter("%(message)s"))
     logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
@@ -381,6 +403,7 @@ def build_api_lookup(
 
 
 def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]]:
+    """Read and concatenate every input CSV for a company, returning it with any load errors."""
     folder = INPUT_ROOT / company
     if not folder.exists():
         return pd.DataFrame(), [], [f"Input folder not found: {folder}"]
@@ -452,6 +475,7 @@ def parse_datetime_to_epoch_ms(series: pd.Series) -> tuple[pd.Series, pd.Series]
 
 
 def validate_output_json(json_path: Path) -> dict[str, bool]:
+    """Check a written JSON against the target schema, reporting each check and an overall verdict."""
     with json_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
 
@@ -462,6 +486,7 @@ def validate_output_json(json_path: Path) -> dict[str, bool]:
     row_counts_consistent = len(set(row_counts)) <= 1
 
     def numeric_or_null(column: str) -> bool:
+        """Check that every value in a column is a number or null, but never a bool."""
         return all(value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)) for value in data[column].values())
 
     datetime_epoch_ms = True
@@ -543,6 +568,7 @@ def report_unmatched_permits(company: str, events: pd.DataFrame) -> None:
 
 
 def empty_company_summary(company: str, csv_files: list[Path], message: str) -> dict[str, Any]:
+    """Build a zeroed summary row for a company that could not be processed."""
     return {
         "company": company,
         "total_input_rows": 0,
@@ -566,6 +592,7 @@ def empty_company_summary(company: str, csv_files: list[Path], message: str) -> 
 
 
 def print_json_comparison(company: str, json_path: Path, validation: dict[str, bool]) -> None:
+    """Log how a written JSON measures up against the target schema."""
     with json_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
 
@@ -579,6 +606,7 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
 
 
 def enrich_company(company: str, api_url: str) -> dict[str, Any]:
+    """Join one company's events to its API metadata, write its JSON, and return its summary."""
     logger.info("\n=== Processing %s ===", company)
     raw_df, csv_files, load_errors = load_company_csvs(company)
 
@@ -664,6 +692,7 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
 
 
 def selected_companies() -> list[str]:
+    """Resolve ONLY_COMPANIES to a list of company names, rejecting any that are unknown."""
     if ONLY_COMPANIES is None:
         return list(COMPANIES.keys())
     unknown = [company for company in ONLY_COMPANIES if company not in COMPANIES]
@@ -673,6 +702,7 @@ def selected_companies() -> list[str]:
 
 
 def main() -> None:
+    """Process every selected company, then log a validation summary across all of them."""
     configure_logging()
     logger.info("Starting reusable EDM CSV to JSON pipeline.")
     logger.info("Target output schema: %s", OUTPUT_COLUMNS)
