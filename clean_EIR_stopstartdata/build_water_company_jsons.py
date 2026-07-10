@@ -155,8 +155,8 @@ def clean_arcgis_url(url: str) -> tuple[str, dict[str, Any]]:
     return base_url, query_params
 
 
-def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
-    """Fetch all pages of a GeoJSON response from an ArcGIS REST API endpoint."""
+def fetch_arcgis_geojson(company: str, api_url: str) -> list[dict[str, Any]]:
+    """Fetch every GeoJSON feature from an ArcGIS REST API endpoint, following pagination."""
     base_url, base_params = clean_arcgis_url(api_url)
     all_features: list[dict[str, Any]] = []
     offset = 0
@@ -207,17 +207,8 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
     else:
         logger.warning("reached ARCGIS_MAX_PAGES=%s; stopping pagination.", ARCGIS_MAX_PAGES)
 
-    full_payload = {
-        "type": "FeatureCollection",
-        "features": all_features,
-        "metadata": {
-            "company": company,
-            "source_url": api_url,
-            "features_fetched": len(all_features),
-        },
-    }
     logger.info("Fetched %s API features for %s.", len(all_features), company)
-    return full_payload
+    return all_features
 
 
 def normalise_permit(value: Any) -> str:
@@ -344,7 +335,7 @@ def report_duplicate_api_id(key: str, records: list[dict[str, Any]]) -> None:
 def build_api_lookup(
     features: list[dict[str, Any]],
     transformer: Transformer,
-) -> tuple[pd.DataFrame, int]:
+) -> pd.DataFrame:
     """
     Build a one-row-per-permit table of API metadata, keyed for joining.
 
@@ -387,30 +378,28 @@ def build_api_lookup(
             }
         )
 
-    duplicate_api_ids = 0
     chosen: list[dict[str, Any]] = []
     for key in sorted(records_by_exact):
         records = records_by_exact[key]
         if len(records) > 1:
-            duplicate_api_ids += 1
             report_duplicate_api_id(key, records)
         chosen.append(records[0])
 
     frame = pd.DataFrame(chosen, columns=API_LOOKUP_COLUMNS)
     frame["X"] = frame["X"].astype("Int64")
     frame["Y"] = frame["Y"].astype("Int64")
-    return frame, duplicate_api_ids
+    return frame
 
 
-def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]]:
+def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[str]]:
     """Read and concatenate every input CSV for a company, returning it with any load errors."""
     folder = INPUT_ROOT / company
     if not folder.exists():
-        return pd.DataFrame(), [], [f"Input folder not found: {folder}"]
+        return pd.DataFrame(), [f"Input folder not found: {folder}"]
 
     csv_files = sorted(folder.glob("*.csv"))
     if not csv_files:
-        return pd.DataFrame(), [], [f"No CSV files found in {folder}"]
+        return pd.DataFrame(), [f"No CSV files found in {folder}"]
 
     frames = []
     errors = []
@@ -429,18 +418,16 @@ def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]
             errors.append(f"{csv_path.name}: missing required columns: {missing}")
             continue
 
-        frame = frame[REQUIRED_INPUT_COLUMNS].dropna(how="all")
-        frame["_source_file"] = csv_path.name
-        frames.append(frame)
+        frames.append(frame[REQUIRED_INPUT_COLUMNS].dropna(how="all"))
 
     if not frames:
-        return pd.DataFrame(), csv_files, errors
+        return pd.DataFrame(), errors
 
     combined = pd.concat(frames, ignore_index=True)
     logger.info("Loaded %s rows for %s from %s CSV file(s).", len(combined), company, len(frames))
     for error in errors:
         logger.warning("%s", error)
-    return combined, csv_files, errors
+    return combined, errors
 
 
 def parse_datetime_to_epoch_ms(series: pd.Series) -> tuple[pd.Series, pd.Series]:
@@ -567,27 +554,30 @@ def report_unmatched_permits(company: str, events: pd.DataFrame) -> None:
         logger.warning("EIR ID %s %s matching stormoverflow hub", shown, phrase)
 
 
-def empty_company_summary(company: str, csv_files: list[Path], message: str) -> dict[str, Any]:
+def report_bad_timestamps(company: str, bad_start: pd.Series, bad_stop: pd.Series) -> None:
+    """Warn when any start or stop time could not be parsed, leaving a null in the JSON."""
+    starts = int(bad_start.sum())
+    stops = int(bad_stop.sum())
+    if not starts and not stops:
+        return
+
+    logger.warning(
+        "btw, %s has %s unparseable start time(s) and %s unparseable stop time(s); "
+        "those rows keep a null StartDateTime or StopDateTime",
+        company,
+        starts,
+        stops,
+    )
+
+
+def empty_company_summary(company: str) -> dict[str, Any]:
     """Build a zeroed summary row for a company that could not be processed."""
     return {
         "company": company,
-        "total_input_rows": 0,
         "total_output_rows": 0,
-        "input_csv_files": ";".join(path.name for path in csv_files),
-        "unique_edm_permits": 0,
-        "api_features_fetched": 0,
         "matched_rows": 0,
         "unmatched_rows": 0,
-        "matched_unique_permits": 0,
-        "unmatched_unique_permits": 0,
-        "rows_missing_x": 0,
-        "rows_missing_y": 0,
-        "rows_missing_receiving_watercourse": 0,
-        "rows_bad_start_time": 0,
-        "rows_bad_stop_time": 0,
-        "duplicate_api_ids": 0,
         "json_validation_passed": False,
-        "error_message": message,
     }
 
 
@@ -608,15 +598,14 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
 def enrich_company(company: str, api_url: str) -> dict[str, Any]:
     """Join one company's events to its API metadata, write its JSON, and return its summary."""
     logger.info("\n=== Processing %s ===", company)
-    raw_df, csv_files, load_errors = load_company_csvs(company)
+    raw_df, load_errors = load_company_csvs(company)
 
     if raw_df.empty:
         message = "; ".join(load_errors) if load_errors else "No input rows found."
         logger.warning("Skipping %s: %s", company, message)
-        return empty_company_summary(company, csv_files, message)
+        return empty_company_summary(company)
 
-    api_payload = fetch_arcgis_geojson(company, api_url)
-    features = api_payload.get("features") or []
+    features = fetch_arcgis_geojson(company, api_url)
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
 
     renamed = raw_df.rename(
@@ -635,8 +624,10 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
     renamed["StopDateTime"], bad_stop = parse_datetime_to_epoch_ms(renamed["StopDateTime"])
     renamed["Duration"] = pd.to_numeric(renamed["Duration"], errors="coerce")
 
+    report_bad_timestamps(company, bad_start, bad_stop)
+
     require_api_schema(company, features)
-    api_frame, duplicate_api_ids = build_api_lookup(features, transformer)
+    api_frame = build_api_lookup(features, transformer)
 
     # One API row per permit, so a left join attaches metadata to every event
     # without changing the row count.
@@ -656,31 +647,12 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
     report_unmatched_permits(company, merged)
 
     matched_rows = int(matched.sum())
-    unmatched_rows = int(len(merged) - matched_rows)
-    matched_permits = merged.loc[matched, "normalised_permit_key"]
-    unmatched_permits = merged.loc[~matched, "normalised_permit_key"]
-    watercourse = merged["ReceivingWaterCourse"]
-    missing_watercourse = watercourse.isna() | watercourse.astype("string").str.strip().eq("")
-
     summary = {
         "company": company,
-        "total_input_rows": int(len(raw_df)),
         "total_output_rows": int(len(output_df)),
-        "input_csv_files": ";".join(path.name for path in csv_files),
-        "unique_edm_permits": int(renamed["normalised_permit_key"].nunique()),
-        "api_features_fetched": int(len(features)),
         "matched_rows": matched_rows,
-        "unmatched_rows": unmatched_rows,
-        "matched_unique_permits": int(matched_permits[matched_permits != ""].nunique()),
-        "unmatched_unique_permits": int(unmatched_permits[unmatched_permits != ""].nunique()),
-        "rows_missing_x": int(merged["X"].isna().sum()),
-        "rows_missing_y": int(merged["Y"].isna().sum()),
-        "rows_missing_receiving_watercourse": int(missing_watercourse.sum()),
-        "rows_bad_start_time": int(bad_start.sum()),
-        "rows_bad_stop_time": int(bad_stop.sum()),
-        "duplicate_api_ids": int(duplicate_api_ids),
+        "unmatched_rows": int(len(merged) - matched_rows),
         "json_validation_passed": bool(validation["passed"]),
-        "error_message": "; ".join(load_errors),
     }
 
     logger.info("Wrote JSON: %s", json_path)
@@ -714,7 +686,7 @@ def main() -> None:
             summaries.append(enrich_company(company, COMPANIES[company]))
         except Exception as exc:
             logger.error("%s failed, continuing to next company: %s", company, exc, exc_info=True)
-            summaries.append(empty_company_summary(company, [], str(exc)))
+            summaries.append(empty_company_summary(company))
 
     logger.info("\n=== Pipeline complete ===")
     logger.info("JSON outputs: %s", OUTPUT_ROOT)
@@ -723,7 +695,7 @@ def main() -> None:
     if not overall.empty:
         # QC is reported to stdout only: the pipeline writes JSON and nothing else.
         logger.info("\nValidation summary:")
-        logger.info("%s", overall[["company", "total_output_rows", "matched_rows", "unmatched_rows", "json_validation_passed"]].to_string(index=False))
+        logger.info("%s", overall.to_string(index=False))
 
 
 if __name__ == "__main__":
