@@ -18,8 +18,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections import Counter, defaultdict
-from dataclasses import dataclass
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlsplit, urlunsplit
@@ -101,15 +100,15 @@ COMPANIES: dict[str, dict[str, Any]] = {
 }
 
 
-@dataclass
-class ApiFields:
-    id_field: str | None
-    x_field: str | None
-    y_field: str | None
-    lon_field: str | None
-    lat_field: str | None
-    watercourse_field: str | None
-    duplicate_api_ids: int
+# Every Stream storm-overflow endpoint returns the same property names and a
+# Point geometry. Only South West Water differs, and only in capitalisation, so
+# properties are looked up case-insensitively rather than per-company. None of
+# the endpoints publish British National Grid eastings/northings: coordinates
+# always arrive as WGS84 lon/lat and are projected to BNG on the way out.
+API_ID_FIELD = "Id"
+API_LAT_FIELD = "Latitude"
+API_LON_FIELD = "Longitude"
+API_WATERCOURSE_FIELD = "ReceivingWaterCourse"
 
 
 def ensure_output_folders() -> None:
@@ -214,21 +213,37 @@ def alphanumeric_key(value: Any) -> str:
     return re.sub(r"[^A-Z0-9]", "", normalise_permit(value))
 
 
-def compact_field_name(value: str) -> str:
-    return re.sub(r"[^a-z0-9]", "", value.lower())
-
-
 def feature_properties(feature: dict[str, Any]) -> dict[str, Any]:
     props = feature.get("properties")
     return props if isinstance(props, dict) else {}
 
 
-def all_property_fields(features: list[dict[str, Any]]) -> list[str]:
-    seen: dict[str, None] = {}
-    for feature in features:
-        for field in feature_properties(feature).keys():
-            seen.setdefault(field, None)
-    return list(seen.keys())
+def get_property(props: dict[str, Any], field: str) -> Any:
+    """Read an API property, tolerating the capitalisation South West Water uses."""
+    if field in props:
+        return props[field]
+    target = field.lower()
+    for key, value in props.items():
+        if key.lower() == target:
+            return value
+    return None
+
+
+def require_api_schema(company: str, features: list[dict[str, Any]]) -> None:
+    """Fail loudly if an endpoint stops returning the fields we assume."""
+    if not features:
+        return
+    props = feature_properties(features[0])
+    missing = [
+        field
+        for field in (API_ID_FIELD, API_LAT_FIELD, API_LON_FIELD, API_WATERCOURSE_FIELD)
+        if get_property(props, field) is None and field.lower() not in {k.lower() for k in props}
+    ]
+    if missing:
+        raise RuntimeError(
+            f"{company} API is missing expected field(s) {missing}. "
+            f"Fields returned: {sorted(props)}"
+        )
 
 
 def to_number(value: Any) -> float | None:
@@ -278,186 +293,6 @@ def first_geometry_lonlat(feature: dict[str, Any]) -> tuple[float | None, float 
     return None, None
 
 
-def permit_field_score(field: str) -> int:
-    compact = compact_field_name(field)
-    lower = field.lower()
-    score = 0
-
-    if compact in {"id", "permit", "permitnumber", "permitno", "csoid", "assetid", "outfallid"}:
-        score += 50
-    if "permit" in compact:
-        score += 40
-    if "cso" in compact:
-        score += 30
-    if "asset" in compact:
-        score += 25
-    if "outfall" in compact:
-        score += 25
-    if compact.endswith("id") or compact == "id":
-        score += 15
-    if compact in {"objectid", "fid", "globalid"} or lower.startswith("shape"):
-        score -= 40
-
-    return score
-
-
-def detect_permit_field(features: list[dict[str, Any]], edm_permits: pd.Series) -> tuple[str | None, int]:
-    fields = all_property_fields(features)
-    edm_keys = {normalise_permit(value) for value in edm_permits if normalise_permit(value)}
-    candidate_fields = [field for field in fields if permit_field_score(field) > 0]
-    if not candidate_fields:
-        candidate_fields = fields
-
-    best_field = None
-    best_tuple = (-1, -1, -1)
-
-    for field in candidate_fields:
-        values = [normalise_permit(feature_properties(feature).get(field)) for feature in features]
-        unique_values = {value for value in values if value}
-        exact_matches = len(edm_keys & unique_values)
-        base_score = permit_field_score(field)
-        non_empty = len(unique_values)
-        ranking = (exact_matches, base_score, non_empty)
-        if ranking > best_tuple:
-            best_tuple = ranking
-            best_field = field
-
-    duplicate_count = 0
-    if best_field:
-        counts = Counter(
-            normalise_permit(feature_properties(feature).get(best_field))
-            for feature in features
-            if normalise_permit(feature_properties(feature).get(best_field))
-        )
-        duplicate_count = sum(1 for count in counts.values() if count > 1)
-        print(
-            f"API permit field selected: {best_field} "
-            f"(matched {best_tuple[0]} unique EDM permits, duplicate API IDs={duplicate_count})"
-        )
-    else:
-        print("No API permit field could be detected.")
-
-    return best_field, duplicate_count
-
-
-def coordinate_field_score(field: str, axis: str) -> int:
-    compact = compact_field_name(field)
-    if axis == "x":
-        exact = {"x", "easting", "east", "bnge", "grideasting", "oseasting"}
-        contains = ["easting", "bnge", "grid_easting", "oseasting"]
-    else:
-        exact = {"y", "northing", "north", "bngn", "gridnorthing", "osnorthing"}
-        contains = ["northing", "bngn", "grid_northing", "osnorthing"]
-
-    score = 0
-    if compact in exact:
-        score += 50
-    for needle in contains:
-        if compact_field_name(needle) in compact:
-            score += 35
-    if compact == axis:
-        score += 30
-    if "longitude" in compact or compact in {"lon", "long"}:
-        score -= 60
-    if "latitude" in compact or compact == "lat":
-        score -= 60
-    return score
-
-
-def detect_coordinate_fields(features: list[dict[str, Any]]) -> tuple[str | None, str | None, str | None, str | None]:
-    fields = all_property_fields(features)
-    x_candidates = [field for field in fields if coordinate_field_score(field, "x") > 0]
-    y_candidates = [field for field in fields if coordinate_field_score(field, "y") > 0]
-
-    best_pair: tuple[str | None, str | None] = (None, None)
-    best_score = (-1, -1)
-    sample = features[:500]
-
-    for x_field in x_candidates:
-        for y_field in y_candidates:
-            valid_count = sum(
-                1
-                for feature in sample
-                if valid_bng(
-                    feature_properties(feature).get(x_field),
-                    feature_properties(feature).get(y_field),
-                )
-            )
-            name_score = coordinate_field_score(x_field, "x") + coordinate_field_score(y_field, "y")
-            if (valid_count, name_score) > best_score:
-                best_score = (valid_count, name_score)
-                best_pair = (x_field, y_field)
-
-    if best_pair[0] and best_pair[1] and best_score[0] > 0:
-        print(f"API BNG coordinate fields selected: X={best_pair[0]}, Y={best_pair[1]}")
-        return best_pair[0], best_pair[1], None, None
-
-    lon_field = None
-    lat_field = None
-    for field in fields:
-        compact = compact_field_name(field)
-        if compact in {"longitude", "lon", "long"}:
-            lon_field = lon_field or field
-        if compact in {"latitude", "lat"}:
-            lat_field = lat_field or field
-
-    if lon_field and lat_field:
-        print(f"API lon/lat fields selected for BNG conversion: lon={lon_field}, lat={lat_field}")
-    else:
-        print("No BNG coordinate fields found; will try GeoJSON geometry lon/lat.")
-
-    return None, None, lon_field, lat_field
-
-
-def watercourse_field_score(field: str) -> int:
-    compact = compact_field_name(field)
-    score = 0
-    if compact == "receivingwatercourse":
-        score += 100
-    if "receiving" in compact:
-        score += 40
-    if "watercourse" in compact or "watercourse" in field.lower().replace("_", ""):
-        score += 35
-    if "river" in compact:
-        score += 20
-    if "stream" in compact:
-        score += 15
-    if "water" in compact:
-        score += 10
-    return score
-
-
-def detect_watercourse_field(features: list[dict[str, Any]]) -> str | None:
-    fields = all_property_fields(features)
-    best_field = None
-    best_score = 0
-    for field in fields:
-        score = watercourse_field_score(field)
-        if score > best_score:
-            best_score = score
-            best_field = field
-
-    if best_field:
-        print(f"API receiving watercourse field selected: {best_field}")
-    else:
-        print("No receiving watercourse field could be detected.")
-    return best_field
-
-
-def detect_api_fields(features: list[dict[str, Any]], edm_permits: pd.Series) -> ApiFields:
-    id_field, duplicate_api_ids = detect_permit_field(features, edm_permits)
-    x_field, y_field, lon_field, lat_field = detect_coordinate_fields(features)
-    watercourse_field = detect_watercourse_field(features)
-
-    return ApiFields(
-        id_field=id_field,
-        x_field=x_field,
-        y_field=y_field,
-        lon_field=lon_field,
-        lat_field=lat_field,
-        watercourse_field=watercourse_field,
-        duplicate_api_ids=duplicate_api_ids,
-    )
 
 
 def convert_lonlat_to_bng(lon: Any, lat: Any, transformer: Transformer) -> tuple[int | None, int | None]:
@@ -472,19 +307,12 @@ def convert_lonlat_to_bng(lon: Any, lat: Any, transformer: Transformer) -> tuple
 
 def extract_coordinates(
     feature: dict[str, Any],
-    api_fields: ApiFields,
     transformer: Transformer,
 ) -> tuple[int | None, int | None]:
     props = feature_properties(feature)
 
-    if api_fields.x_field and api_fields.y_field:
-        x_value = to_number(props.get(api_fields.x_field))
-        y_value = to_number(props.get(api_fields.y_field))
-        if valid_bng(x_value, y_value):
-            return round(float(x_value)), round(float(y_value))
-
-    lon = props.get(api_fields.lon_field) if api_fields.lon_field else None
-    lat = props.get(api_fields.lat_field) if api_fields.lat_field else None
+    lon = get_property(props, API_LON_FIELD)
+    lat = get_property(props, API_LAT_FIELD)
     if not valid_lonlat(lon, lat):
         lon, lat = first_geometry_lonlat(feature)
 
@@ -493,31 +321,21 @@ def extract_coordinates(
 
 def build_api_lookup(
     features: list[dict[str, Any]],
-    api_fields: ApiFields,
     transformer: Transformer,
 ) -> dict[str, Any]:
-    if not api_fields.id_field:
-        return {
-            "exact_lookup": {},
-            "duplicate_exact_keys": set(),
-            "alpha_lookup": {},
-            "duplicate_alpha_keys": set(),
-            "records_by_exact": {},
-        }
-
     records_by_exact: dict[str, list[dict[str, Any]]] = defaultdict(list)
     records_by_alpha: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for feature in features:
         props = feature_properties(feature)
-        raw_id = props.get(api_fields.id_field)
+        raw_id = get_property(props, API_ID_FIELD)
         exact_key = normalise_permit(raw_id)
         alpha_key = alphanumeric_key(raw_id)
         if not exact_key:
             continue
 
-        x_value, y_value = extract_coordinates(feature, api_fields, transformer)
-        watercourse = props.get(api_fields.watercourse_field) if api_fields.watercourse_field else None
+        x_value, y_value = extract_coordinates(feature, transformer)
+        watercourse = get_property(props, API_WATERCOURSE_FIELD)
         record = {
             "feature": feature,
             "raw_id": raw_id,
@@ -542,6 +360,7 @@ def build_api_lookup(
         "alpha_lookup": alpha_lookup,
         "duplicate_alpha_keys": duplicate_alpha_keys,
         "records_by_exact": records_by_exact,
+        "duplicate_api_ids": len(duplicate_exact_keys),
     }
 
 
@@ -818,8 +637,8 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
     renamed["StopDateTime"], bad_stop = parse_datetime_to_epoch_ms(renamed["StopDateTime"])
     renamed["Duration"] = pd.to_numeric(renamed["Duration"], errors="coerce")
 
-    api_fields = detect_api_fields(features, renamed["PermitNumber"])
-    lookup = build_api_lookup(features, api_fields, transformer)
+    require_api_schema(company, features)
+    lookup = build_api_lookup(features, transformer)
 
     match_rows = []
     x_values = []
@@ -858,7 +677,7 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
                 "normalised_permit_key": normalised_key,
                 "match_status": match_status,
                 "match_type": match_type,
-                "api_id_field_used": api_fields.id_field,
+                "api_id_field_used": API_ID_FIELD,
                 "api_matched_id_value": api_matched_id,
                 "X": x_value,
                 "Y": y_value,
@@ -899,10 +718,10 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
         "input_csv_files": ";".join(path.name for path in csv_files),
         "unique_edm_permits": int(renamed["normalised_permit_key"].nunique()),
         "api_features_fetched": int(len(features)),
-        "api_id_field_used": api_fields.id_field or "",
-        "api_x_field_used": api_fields.x_field or api_fields.lon_field or "geometry_lonlat",
-        "api_y_field_used": api_fields.y_field or api_fields.lat_field or "geometry_lonlat",
-        "api_watercourse_field_used": api_fields.watercourse_field or "",
+        "api_id_field_used": API_ID_FIELD,
+        "api_x_field_used": API_LON_FIELD,
+        "api_y_field_used": API_LAT_FIELD,
+        "api_watercourse_field_used": API_WATERCOURSE_FIELD,
         "matched_rows": matched_rows,
         "unmatched_rows": unmatched_rows,
         "matched_unique_permits": int(matched_permits[matched_permits != ""].nunique()),
@@ -912,7 +731,7 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
         "rows_missing_receiving_watercourse": int(match_report["missing_receiving_watercourse"].sum()),
         "rows_bad_start_time": int(bad_start.sum()),
         "rows_bad_stop_time": int(bad_stop.sum()),
-        "duplicate_api_ids": int(api_fields.duplicate_api_ids),
+        "duplicate_api_ids": int(lookup["duplicate_api_ids"]),
         "json_validation_passed": bool(validation["passed"]),
         "error_message": "; ".join(load_errors),
     }
