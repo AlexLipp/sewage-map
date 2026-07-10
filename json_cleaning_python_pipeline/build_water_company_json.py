@@ -39,7 +39,7 @@ from pyproj import Transformer
 # Companies to process this run. For all of them:
 # ["anglian", "northumbrian", "severn_trent", "south_west_water",
 #  "southern_water", "united_utilities", "wessex", "yorkshire"]
-ONLY_COMPANIES = ["yorkshire", "southern_water"]
+ONLY_COMPANIES = ["yorkshire", "united_utilities"]
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 INPUT_ROOT = PROJECT_ROOT / "input_stopstart_data"
@@ -198,10 +198,6 @@ def normalise_permit(value: Any) -> str:
     return text
 
 
-def alphanumeric_key(value: Any) -> str:
-    return re.sub(r"[^A-Z0-9]", "", normalise_permit(value))
-
-
 def feature_properties(feature: dict[str, Any]) -> dict[str, Any]:
     props = feature.get("properties")
     return props if isinstance(props, dict) else {}
@@ -313,13 +309,11 @@ def build_api_lookup(
     transformer: Transformer,
 ) -> dict[str, Any]:
     records_by_exact: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    records_by_alpha: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for feature in features:
         props = feature_properties(feature)
         raw_id = get_property(props, API_ID_FIELD)
         exact_key = normalise_permit(raw_id)
-        alpha_key = alphanumeric_key(raw_id)
         if not exact_key:
             continue
 
@@ -329,25 +323,18 @@ def build_api_lookup(
             "feature": feature,
             "raw_id": raw_id,
             "exact_key": exact_key,
-            "alpha_key": alpha_key,
             "X": x_value,
             "Y": y_value,
             "ReceivingWaterCourse": watercourse if pd.notna(watercourse) else None,
         }
         records_by_exact[exact_key].append(record)
-        if alpha_key:
-            records_by_alpha[alpha_key].append(record)
 
     exact_lookup = {key: values[0] for key, values in records_by_exact.items() if len(values) == 1}
     duplicate_exact_keys = {key for key, values in records_by_exact.items() if len(values) > 1}
-    alpha_lookup = {key: values[0] for key, values in records_by_alpha.items() if len(values) == 1}
-    duplicate_alpha_keys = {key for key, values in records_by_alpha.items() if len(values) > 1}
 
     return {
         "exact_lookup": exact_lookup,
         "duplicate_exact_keys": duplicate_exact_keys,
-        "alpha_lookup": alpha_lookup,
-        "duplicate_alpha_keys": duplicate_alpha_keys,
         "records_by_exact": records_by_exact,
         "duplicate_api_ids": len(duplicate_exact_keys),
     }
@@ -467,23 +454,17 @@ def parse_datetime_to_epoch_ms(series: pd.Series) -> tuple[pd.Series, pd.Series]
 
 def match_keys_to_api(
     normalised_key: str,
-    alpha_key: str,
     lookup: dict[str, Any],
 ) -> tuple[dict[str, Any] | None, str, str]:
+    """Match an EDM permit to an API record. Exact matches only, no fuzzy fallback."""
     if not normalised_key:
         return None, "unmatched_blank_permit", ""
 
     if normalised_key in lookup["exact_lookup"]:
-        return lookup["exact_lookup"][normalised_key], "matched", "exact_normalised"
+        return lookup["exact_lookup"][normalised_key], "matched", "exact"
 
     if normalised_key in lookup["duplicate_exact_keys"]:
         return None, "unmatched_duplicate_api_id", ""
-
-    if alpha_key and alpha_key in lookup["alpha_lookup"]:
-        return lookup["alpha_lookup"][alpha_key], "matched", "alphanumeric_unique"
-
-    if alpha_key and alpha_key in lookup["duplicate_alpha_keys"]:
-        return None, "unmatched_duplicate_api_alphanumeric_id", ""
 
     return None, "unmatched", ""
 
@@ -543,6 +524,34 @@ def validate_output_json(json_path: Path) -> dict[str, bool]:
             ]
         ),
     }
+
+
+def report_unmatched_permits(company: str, match_report: pd.DataFrame) -> None:
+    """Name every EDM permit that has no exact match in the Storm Overflow Hub."""
+    unmatched = match_report[match_report["match_status"] != "matched"]
+    if unmatched.empty:
+        print(f"\nAll {company} permits matched the Storm Overflow Hub.")
+        return
+
+    reasons = {
+        "unmatched": "not found in",
+        "unmatched_blank_permit": "blank permit number, cannot look up in",
+        "unmatched_duplicate_api_id": "ambiguous (duplicate ID) in",
+    }
+    permits = unmatched[["normalised_permit_key", "match_status"]].drop_duplicates()
+    rows = int(len(unmatched))
+
+    print(
+        f"\n{'!' * 70}\n"
+        f"WARNING: {len(permits)} {company} permit(s) did not match the "
+        f"Storm Overflow Hub, affecting {rows} event row(s).\n"
+        f"These rows have null X, Y and ReceivingWaterCourse.\n"
+        f"{'!' * 70}"
+    )
+    for permit, status in permits.sort_values("normalised_permit_key").itertuples(index=False):
+        phrase = reasons.get(status, "unmatched against")
+        shown = permit or "<blank>"
+        print(f"  EIR ID {shown} {phrase} matching stormoverflow hub")
 
 
 def empty_company_summary(company: str, csv_files: list[Path], message: str) -> dict[str, Any]:
@@ -609,7 +618,6 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
     )
 
     renamed["normalised_permit_key"] = renamed["PermitNumber"].apply(normalise_permit)
-    renamed["alpha_permit_key"] = renamed["PermitNumber"].apply(alphanumeric_key)
 
     renamed["StartDateTime"], bad_start = parse_datetime_to_epoch_ms(renamed["StartDateTime"])
     renamed["StopDateTime"], bad_stop = parse_datetime_to_epoch_ms(renamed["StopDateTime"])
@@ -627,12 +635,11 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
         renamed["LocationName"],
         renamed["PermitNumber"],
         renamed["normalised_permit_key"],
-        renamed["alpha_permit_key"],
         bad_start,
         bad_stop,
     ):
-        location_name, permit_number, normalised_key, alpha_key, row_bad_start, row_bad_stop = row_values
-        record, match_status, match_type = match_keys_to_api(normalised_key, alpha_key, lookup)
+        location_name, permit_number, normalised_key, row_bad_start, row_bad_stop = row_values
+        record, match_status, match_type = match_keys_to_api(normalised_key, lookup)
         if record:
             x_value = record["X"]
             y_value = record["Y"]
@@ -680,6 +687,7 @@ def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
 
     validation = validate_output_json(json_path)
     match_report = pd.DataFrame(match_rows)
+    report_unmatched_permits(company, match_report)
 
     matched_rows = int((match_report["match_status"] == "matched").sum())
     unmatched_rows = int(len(match_report) - matched_rows)
