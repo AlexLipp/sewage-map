@@ -1,15 +1,17 @@
 """
-Reusable EDM CSV to Thames-compatible JSON pipeline.
+Reusable EDM CSV to sewagemap JSON pipeline.
 
 How to run in VS Code:
 1. Install requirements:
    pip install -r requirements.txt
-2. Put thames.json in the project root.
-3. Put standardised CSV files inside the correct standardised_data/{company}_data folder.
-4. Run build_water_company_json.py.
-5. Inspect outputs/qc before trusting the JSON.
-6. Start with ONLY_COMPANIES = ["anglian"].
-7. Once Anglian validates, change ONLY_COMPANIES = None to process all companies.
+2. Put standardised CSV files inside the correct standardised_data/{company}_data folder.
+3. Run build_water_company_json.py.
+4. Inspect outputs/qc before trusting the JSON.
+5. Start with ONLY_COMPANIES = ["anglian"].
+6. Once Anglian validates, change ONLY_COMPANIES = None to process all companies.
+
+The target output schema is declared by OUTPUT_COLUMNS below. It is the single
+source of truth: the JSON is built from it and validated against it.
 """
 
 from __future__ import annotations
@@ -37,12 +39,12 @@ ONLY_COMPANIES = ["yorkshire"]
 PROJECT_ROOT = Path(__file__).resolve().parent
 INPUT_ROOT = PROJECT_ROOT / "standardised_data"
 OUTPUT_ROOT = PROJECT_ROOT / "outputs"
-THAMES_JSON_PATH = PROJECT_ROOT / "thames.json"
 
 LOCAL_TIMEZONE = "Europe/London"
 ARCGIS_PAGE_SIZE = 2000
 ARCGIS_MAX_PAGES = 1000
 
+# Target JSON schema: keys, and their order, of the column-oriented output.
 OUTPUT_COLUMNS = [
     "LocationName",
     "PermitNumber",
@@ -100,11 +102,6 @@ COMPANIES: dict[str, dict[str, Any]] = {
 
 
 @dataclass
-class ThamesContract:
-    keys: list[str]
-
-
-@dataclass
 class ApiFields:
     id_field: str | None
     x_field: str | None
@@ -113,35 +110,6 @@ class ApiFields:
     lat_field: str | None
     watercourse_field: str | None
     duplicate_api_ids: int
-
-
-def load_thames_contract() -> ThamesContract:
-    if not THAMES_JSON_PATH.exists():
-        raise FileNotFoundError(
-            f"Cannot find Thames reference JSON at {THAMES_JSON_PATH}. "
-            "Edit THAMES_JSON_PATH if your file has a different name."
-        )
-
-    with THAMES_JSON_PATH.open("r", encoding="utf-8") as handle:
-        thames = json.load(handle)
-
-    if not isinstance(thames, dict):
-        raise ValueError("Thames JSON must be a top-level object.")
-
-    keys = list(thames.keys())
-    if keys != OUTPUT_COLUMNS:
-        raise ValueError(
-            "Thames JSON keys do not match the expected output columns.\n"
-            f"Expected: {OUTPUT_COLUMNS}\n"
-            f"Found:    {keys}"
-        )
-
-    for key, value in thames.items():
-        if not isinstance(value, dict):
-            raise ValueError(f"Thames JSON column {key!r} is not a dictionary.")
-
-    print(f"Loaded Thames contract from {THAMES_JSON_PATH.name}: {keys}")
-    return ThamesContract(keys=keys)
 
 
 def ensure_output_folders() -> None:
@@ -712,14 +680,14 @@ def match_keys_to_api(
     return None, "unmatched", ""
 
 
-def validate_output_json(json_path: Path, contract: ThamesContract) -> dict[str, bool]:
+def validate_output_json(json_path: Path) -> dict[str, bool]:
     with json_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
 
-    keys_match = list(data.keys()) == contract.keys
-    orientation_matches = all(isinstance(data.get(key), dict) for key in contract.keys)
+    keys_match = list(data.keys()) == OUTPUT_COLUMNS
+    orientation_matches = all(isinstance(data.get(key), dict) for key in OUTPUT_COLUMNS)
 
-    row_counts = [len(data.get(key, {})) for key in contract.keys]
+    row_counts = [len(data.get(key, {})) for key in OUTPUT_COLUMNS]
     row_counts_consistent = len(set(row_counts)) <= 1
 
     def numeric_or_null(column: str) -> bool:
@@ -810,7 +778,7 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
         data = json.load(handle)
 
     print(f"\nFirst JSON keys for {company}: {list(data.keys())[:5]}")
-    print("Thames-vs-company structural comparison:")
+    print("Structural comparison against the target schema:")
     print(f"  JSON keys match: {validation['keys_match']}")
     print(f"  JSON orientation matches: {validation['orientation_matches']}")
     print(f"  StartDateTime/StopDateTime are epoch milliseconds: {validation['datetime_epoch_ms']}")
@@ -818,7 +786,7 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
     print(f"  OngoingEvent is boolean false: {validation['ongoing_false']}")
 
 
-def enrich_company(company: str, config: dict[str, Any], contract: ThamesContract) -> dict[str, Any]:
+def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
     print(f"\n=== Processing {company} ===")
     raw_df, csv_files, load_errors = load_company_csvs(company, config)
 
@@ -916,7 +884,7 @@ def enrich_company(company: str, config: dict[str, Any], contract: ThamesContrac
     output_df.to_csv(csv_path, index=False)
     output_df.to_json(json_path, orient="columns")
 
-    validation = validate_output_json(json_path, contract)
+    validation = validate_output_json(json_path)
     match_report = pd.DataFrame(match_rows)
 
     matched_rows = int((match_report["match_status"] == "matched").sum())
@@ -952,7 +920,7 @@ def enrich_company(company: str, config: dict[str, Any], contract: ThamesContrac
     write_qc_reports(company, summary, match_report)
 
     print(f"Wrote enriched CSV: {csv_path}")
-    print(f"Wrote Thames-compatible JSON: {json_path}")
+    print(f"Wrote JSON: {json_path}")
     print(f"\nFirst 3 enriched rows for {company}:")
     print(output_df.head(3).to_string(index=False))
     print_json_comparison(company, json_path, validation)
@@ -970,14 +938,14 @@ def selected_companies() -> list[str]:
 
 
 def main() -> None:
-    print("Starting reusable EDM CSV to Thames JSON pipeline.")
+    print("Starting reusable EDM CSV to JSON pipeline.")
+    print(f"Target output schema: {OUTPUT_COLUMNS}")
     ensure_output_folders()
-    contract = load_thames_contract()
 
     summaries = []
     for company in selected_companies():
         try:
-            summaries.append(enrich_company(company, COMPANIES[company], contract))
+            summaries.append(enrich_company(company, COMPANIES[company]))
         except Exception as exc:
             print(f"ERROR: {company} failed, continuing to next company. Details: {exc}")
             summary = empty_company_summary(company, [], str(exc))
