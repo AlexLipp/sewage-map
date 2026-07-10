@@ -4,7 +4,8 @@ Reusable EDM CSV to sewagemap JSON pipeline.
 How to run in VS Code:
 1. Install requirements:
    pip install -r requirements.txt
-2. Put stop/start CSV files inside the correct input_stopstart_data/{company} folder.
+2. Put stop/start CSV files inside input_stopstart_data/{company}/, where
+   {company} is exactly one of the keys of COMPANIES below.
 3. Run build_water_company_json.py.
 4. Read the printed validation summary before trusting the JSON.
 5. Set ONLY_COMPANIES to the companies you want to process. The comment beside
@@ -70,39 +71,15 @@ REQUIRED_INPUT_COLUMNS = [
     "duration_minutes",
 ]
 
-COMPANIES: dict[str, dict[str, Any]] = {
-    "anglian": {
-        "folders": ["anglian_data"],
-        "api": "https://services3.arcgis.com/VCOY1atHWVcDlvlJ/arcgis/rest/services/stream_service_outfall_locations_view/FeatureServer/0/query",
-    },
-    "northumbrian": {
-        "folders": ["northumbrian_data", "northumbria_data"],
-        "api": "https://services-eu1.arcgis.com/MSNNjkZ51iVh8yBj/arcgis/rest/services/Northumbrian_Water_Storm_Overflow_Activity_2_view/FeatureServer/0/query",
-    },
-    "severn_trent": {
-        "folders": ["severn_trent_data"],
-        "api": "https://services1.arcgis.com/NO7lTIlnxRMMG9Gw/arcgis/rest/services/Severn_Trent_Water_Storm_Overflow_Activity/FeatureServer/0/query",
-    },
-    "south_west_water": {
-        "folders": ["south_west_water", "south_west_water_data"],
-        "api": "https://services-eu1.arcgis.com/OMdMOtfhATJPcHe3/arcgis/rest/services/NEH_outlets_PROD/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson",
-    },
-    "southern_water": {
-        "folders": ["southern_water_data"],
-        "api": "https://services-eu1.arcgis.com/6qJmARkS2dt2IjVA/arcgis/rest/services/SouthernWater_StormOverflowActivity_PROD_view/FeatureServer/0/query",
-    },
-    "united_utilities": {
-        "folders": ["united_utilities_data"],
-        "api": "https://services5.arcgis.com/5eoLvR0f8HKb7HWP/arcgis/rest/services/United_Utilities_Storm_Overflow_Activity/FeatureServer/0/query",
-    },
-    "wessex": {
-        "folders": ["wessex_data"],
-        "api": "https://services.arcgis.com/3SZ6e0uCvPROr4mS/arcgis/rest/services/Wessex_Water_Storm_Overflow_Activity/FeatureServer/0/query",
-    },
-    "yorkshire": {
-        "folders": ["yorkshire_data"],
-        "api": "https://services-eu1.arcgis.com/1WqkK5cDKUbF0CkH/arcgis/rest/services/Yorkshire_Water_Storm_Overflow_Activity/FeatureServer/0/query",
-    },
+COMPANIES: dict[str, str] = {
+    "anglian": "https://services3.arcgis.com/VCOY1atHWVcDlvlJ/arcgis/rest/services/stream_service_outfall_locations_view/FeatureServer/0/query",
+    "northumbrian": "https://services-eu1.arcgis.com/MSNNjkZ51iVh8yBj/arcgis/rest/services/Northumbrian_Water_Storm_Overflow_Activity_2_view/FeatureServer/0/query",
+    "severn_trent": "https://services1.arcgis.com/NO7lTIlnxRMMG9Gw/arcgis/rest/services/Severn_Trent_Water_Storm_Overflow_Activity/FeatureServer/0/query",
+    "south_west_water": "https://services-eu1.arcgis.com/OMdMOtfhATJPcHe3/arcgis/rest/services/NEH_outlets_PROD/FeatureServer/0/query?outFields=*&where=1%3D1&f=geojson",
+    "southern_water": "https://services-eu1.arcgis.com/6qJmARkS2dt2IjVA/arcgis/rest/services/SouthernWater_StormOverflowActivity_PROD_view/FeatureServer/0/query",
+    "united_utilities": "https://services5.arcgis.com/5eoLvR0f8HKb7HWP/arcgis/rest/services/United_Utilities_Storm_Overflow_Activity/FeatureServer/0/query",
+    "wessex": "https://services.arcgis.com/3SZ6e0uCvPROr4mS/arcgis/rest/services/Wessex_Water_Storm_Overflow_Activity/FeatureServer/0/query",
+    "yorkshire": "https://services-eu1.arcgis.com/1WqkK5cDKUbF0CkH/arcgis/rest/services/Yorkshire_Water_Storm_Overflow_Activity/FeatureServer/0/query",
 }
 
 
@@ -118,10 +95,12 @@ API_WATERCOURSE_FIELD = "ReceivingWaterCourse"
 
 
 def ensure_output_folder() -> None:
+    """Create the output folder if it doesn't exist."""
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 
 def clean_arcgis_url(url: str) -> tuple[str, dict[str, Any]]:
+    """Split an ArcGIS REST API URL into a base URL and query parameters."""
     parts = urlsplit(url)
     base_url = urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
     query_params = dict(parse_qsl(parts.query))
@@ -129,6 +108,7 @@ def clean_arcgis_url(url: str) -> tuple[str, dict[str, Any]]:
 
 
 def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
+    """Fetch all pages of a GeoJSON response from an ArcGIS REST API endpoint."""
     base_url, base_params = clean_arcgis_url(api_url)
     all_features: list[dict[str, Any]] = []
     offset = 0
@@ -191,6 +171,7 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
 
 
 def normalise_permit(value: Any) -> str:
+    """Normalise an EDM permit number to a canonical form for matching against the API."""
     if pd.isna(value):
         return ""
     text = str(value).strip().upper()
@@ -199,6 +180,7 @@ def normalise_permit(value: Any) -> str:
 
 
 def feature_properties(feature: dict[str, Any]) -> dict[str, Any]:
+    """Return the properties of a GeoJSON feature, or an empty dict if missing."""
     props = feature.get("properties")
     return props if isinstance(props, dict) else {}
 
@@ -232,6 +214,7 @@ def require_api_schema(company: str, features: list[dict[str, Any]]) -> None:
 
 
 def to_number(value: Any) -> float | None:
+    """Convert a value to a float, or return None if it cannot be converted."""
     if value is None or pd.isna(value):
         return None
     if isinstance(value, str):
@@ -245,6 +228,7 @@ def to_number(value: Any) -> float | None:
 
 
 def valid_bng(x_value: Any, y_value: Any) -> bool:
+    """Check if a pair of values are valid British National Grid coordinates."""
     x_num = to_number(x_value)
     y_num = to_number(y_value)
     return (
@@ -256,12 +240,14 @@ def valid_bng(x_value: Any, y_value: Any) -> bool:
 
 
 def valid_lonlat(lon: Any, lat: Any) -> bool:
+    """Check if a pair of values are valid WGS84 longitude and latitude."""
     lon_num = to_number(lon)
     lat_num = to_number(lat)
     return lon_num is not None and lat_num is not None and -8.5 <= lon_num <= 2.5 and 49 <= lat_num <= 61
 
 
 def first_geometry_lonlat(feature: dict[str, Any]) -> tuple[float | None, float | None]:
+    """Extract the first lon/lat coordinate from a GeoJSON feature's geometry."""
     geometry = feature.get("geometry") or {}
     coordinates = geometry.get("coordinates")
     if not isinstance(coordinates, list):
@@ -281,6 +267,7 @@ def first_geometry_lonlat(feature: dict[str, Any]) -> tuple[float | None, float 
 
 
 def convert_lonlat_to_bng(lon: Any, lat: Any, transformer: Transformer) -> tuple[int | None, int | None]:
+    """Convert WGS84 lon/lat to British National Grid eastings/northings."""
     if not valid_lonlat(lon, lat):
         return None, None
 
@@ -294,6 +281,7 @@ def extract_coordinates(
     feature: dict[str, Any],
     transformer: Transformer,
 ) -> tuple[int | None, int | None]:
+    """Extract coordinates from a GeoJSON feature, converting to BNG if necessary."""
     props = feature_properties(feature)
 
     lon = get_property(props, API_LON_FIELD)
@@ -308,6 +296,7 @@ def build_api_lookup(
     features: list[dict[str, Any]],
     transformer: Transformer,
 ) -> dict[str, Any]:
+    """Build a lookup of API features by normalised permit number."""
     records_by_exact: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for feature in features:
@@ -340,16 +329,8 @@ def build_api_lookup(
     }
 
 
-def resolve_company_folder(config: dict[str, Any]) -> Path:
-    for folder_name in config["folders"]:
-        folder = INPUT_ROOT / folder_name
-        if folder.exists():
-            return folder
-    return INPUT_ROOT / config["folders"][0]
-
-
-def load_company_csvs(company: str, config: dict[str, Any]) -> tuple[pd.DataFrame, list[Path], list[str]]:
-    folder = resolve_company_folder(config)
+def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]]:
+    folder = INPUT_ROOT / company
     if not folder.exists():
         return pd.DataFrame(), [], [f"Input folder not found: {folder}"]
 
@@ -594,16 +575,16 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
     print(f"  OngoingEvent is boolean false: {validation['ongoing_false']}")
 
 
-def enrich_company(company: str, config: dict[str, Any]) -> dict[str, Any]:
+def enrich_company(company: str, api_url: str) -> dict[str, Any]:
     print(f"\n=== Processing {company} ===")
-    raw_df, csv_files, load_errors = load_company_csvs(company, config)
+    raw_df, csv_files, load_errors = load_company_csvs(company)
 
     if raw_df.empty:
         message = "; ".join(load_errors) if load_errors else "No input rows found."
         print(f"Skipping {company}: {message}")
         return empty_company_summary(company, csv_files, message)
 
-    api_payload = fetch_arcgis_geojson(company, config["api"])
+    api_payload = fetch_arcgis_geojson(company, api_url)
     features = api_payload.get("features") or []
     transformer = Transformer.from_crs("EPSG:4326", "EPSG:27700", always_xy=True)
 
