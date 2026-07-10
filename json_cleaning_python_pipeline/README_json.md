@@ -1,115 +1,73 @@
 # Water Company EDM JSON Pipeline
 
-This project converts standardised water-company EDM start/stop CSV files into Thames-compatible JSON files for the sewage overflow website.
+This directory converts standardised water-company EDM stop/start CSV files into
+the column-oriented JSON that the sewage overflow website consumes.
 
-The script reads all CSV files from each company folder, matches each `permit_number` to company StormHub/API data, adds British National Grid `X` and `Y` coordinates, adds `ReceivingWaterCourse`, converts dates to epoch milliseconds, and outputs enriched CSV and JSON files.
+For each company the script reads every CSV in its input folder, matches each
+`permit_number` against the company's Stream Storm Overflow Hub API, attaches
+British National Grid `X`/`Y` coordinates and a `ReceivingWaterCourse`, converts
+timestamps to epoch milliseconds, and writes one JSON file.
 
-## Required input format
-
-Each input CSV must contain these columns exactly:
-
-location_name
-permit_number
-start_time
-stop_time
-duration_minutes
-
-Example:
-
-location_name,permit_number,start_time,stop_time,duration_minutes
-Example Site,AWS00009,2025-01-01 10:00:00,2025-01-01 11:15:00,75
-
-Place CSV files in the correct company folder:
-
-standardised_data/anglian_data/
-standardised_data/northumbrian_data/
-standardised_data/severn_trent_data/
-standardised_data/southern_water_data/
-standardised_data/united_utilities_data/
-standardised_data/wessex_data/
-standardised_data/yorkshire_data/
-
-The script automatically reads every CSV inside each folder, so new standardised files can be added and processed by rerunning the script.
-
-```
-
-
+The pipeline reads `input_stopstart_data/` and writes `outputs/`. It writes
+nothing else — no intermediate CSVs, no API cache. QC is reported to stdout.
 
 ## Install requirements
+
+```shell
 pip install -r requirements.txt
+```
 
+## Input format
 
-Required packages:
+Each input CSV must contain exactly these columns:
 
-pandas
-requests
-pyproj
+```
+location_name,permit_number,start_time,stop_time,duration_minutes
+Example Site,AWS00009,2025-01-01 10:00:00,2025-01-01 11:15:00,75
+```
 
+Place them in the folder named after the company, where the folder name is
+exactly one of the keys of `COMPANIES` in `build_water_company_json.py`:
 
-## Run the script
+```
+input_stopstart_data/
+    anglian/
+    northumbrian/
+    severn_trent/
+    south_west_water/
+    southern_water/
+    united_utilities/
+    wessex/
+    yorkshire/
+```
+
+Every CSV inside a folder is read and concatenated, so new files can be dropped
+in and picked up by rerunning the script.
+
+`permit_number` must hold the site's Stream identifier (`AWS00009`, `YWS00231`,
+`SWS00004`, …). Some EIR responses use a company's own internal site codes
+instead; those rows cannot be matched and will be reported as unmatched.
+
+## Run
+
+Choose the companies to process by editing `ONLY_COMPANIES` near the top of
+`build_water_company_json.py`. The comment beside it lists all eight, to paste
+in when you want the lot.
+
+```shell
 python build_water_company_json.py
+```
 
 Or press **Run Python File** in VS Code.
 
-At the top of `build_water_company_json.py`, choose which companies to run:
+## Output
 
-ONLY_COMPANIES = ["anglian"]
+One file per company, written to `outputs/{company}.json`.
 
+The JSON is column-oriented: an outer object keyed by column name, each mapping
+to an inner object keyed by row index.
 
-Examples:
-
-
-ONLY_COMPANIES = ["northumbrian"]
-ONLY_COMPANIES = ["anglian", "northumbrian", "severn_trent"]
-ONLY_COMPANIES = None  # runs all companies
-
-
-
-The script creates:
-
-outputs/
-    csv_clean/
-    json/
-    qc/
-    api_cache/
-
-
-Enriched CSV output:
-
-outputs/csv_clean/{company}_enriched.csv
-
-
-JSON output:
-
-outputs/json/{company}.json
-
-
-QC outputs:
-
-outputs/qc/{company}_summary.csv
-outputs/qc/{company}_match_report.csv
-outputs/qc/overall_summary.csv
-
-
-
-## Final output schema
-Both the enriched CSV and JSON use these final columns:
-
-
-LocationName
-PermitNumber
-X
-Y
-ReceivingWaterCourse
-StartDateTime
-StopDateTime
-Duration
-OngoingEvent
-
-
-The JSON is Thames-compatible and column-oriented:
-
-
+```json
 {
   "LocationName": {"0": "Example Site"},
   "PermitNumber": {"0": "AWS00009"},
@@ -121,22 +79,54 @@ The JSON is Thames-compatible and column-oriented:
   "Duration": {"0": 75},
   "OngoingEvent": {"0": false}
 }
+```
 
+The schema is declared by `OUTPUT_COLUMNS` in the script, which is the single
+source of truth: the JSON is built from it and validated against it.
 
-## QC checks
+## Reading the QC output
 
-Always inspect the QC files before using the JSON on the website.
+Always read the printed output before using a JSON on the website.
 
-The QC reports show matched permits, unmatched permits, missing coordinates, missing watercourses, bad dates, and JSON validation status.
+Any permit that has no exact match in the Storm Overflow Hub is named
+individually:
 
+```
+WARNING: !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+12 yorkshire permit(s) did not match the Storm Overflow Hub, affecting
+3547 event row(s).
+These rows have null X, Y and ReceivingWaterCourse.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+WARNING: EIR ID YWS00082 not found in matching stormoverflow hub
+```
 
-Important Notes
+A run ends with a summary table:
 
-The APIs often provide longitude/latitude, not Thames-style `X/Y`.
+```
+         company  total_output_rows  matched_rows  unmatched_rows  json_validation_passed
+       yorkshire             694915        691368            3547                    True
+united_utilities             257573        256904             669                    True
+```
 
-The script converts longitude/latitude into British National Grid coordinates using EPSG:27700.
+`json_validation_passed` only checks the *shape* of the JSON — its keys, their
+order, epoch-millisecond timestamps, coordinates inside the British National
+Grid, and `OngoingEvent` being boolean. It does **not** check that rows matched.
+A company whose every permit failed to match still passes, because its rows have
+null `X`/`Y` and null coordinates are permitted. Read `matched_rows` against
+`unmatched_rows` before trusting a file.
 
-Do not manually use longitude/latitude as `X/Y`.
+## Notes
 
-Historical EDM records are not live events, so `OngoingEvent` is set to `false` for every row.
+Matching is exact. A permit matches an API `Id` only after both are trimmed,
+uppercased, and internal whitespace runs are collapsed. There is no fuzzy
+fallback: a permit that differs in substance or punctuation is reported rather
+than guessed at.
 
+The APIs publish longitude/latitude, not `X`/`Y`. The script projects them to
+British National Grid (EPSG:27700). Never use longitude/latitude as `X`/`Y`.
+
+Historical EDM records are not live events, so `OngoingEvent` is `false` for
+every row.
+
+The API is fetched fresh on every run. There is no cache, so a network failure
+means that company is skipped, with the traceback logged, and the run continues.
