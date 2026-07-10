@@ -615,6 +615,7 @@ def empty_company_summary(company: str) -> dict[str, Any]:
         "total_output_rows": 0,
         "matched_rows": 0,
         "unmatched_rows": 0,
+        "unmatched_ids": 0,
         "json_validation_passed": False,
     }
 
@@ -703,6 +704,9 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
         "total_output_rows": int(len(output_df)),
         "matched_rows": matched_rows,
         "unmatched_rows": int(len(merged) - matched_rows),
+        # Distinct permits behind those rows, counted the same way
+        # report_unmatched_permits counts them, so the two always agree.
+        "unmatched_ids": int(merged.loc[~matched, "normalised_permit_key"].nunique()),
         "json_validation_passed": bool(validation["passed"]),
     }
 
