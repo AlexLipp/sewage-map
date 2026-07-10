@@ -380,70 +380,34 @@ def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]
     return combined, csv_files, errors
 
 
-def parse_datetime_to_epoch_ms_scalar(series: pd.Series) -> tuple[pd.Series, pd.Series]:
-    output_values: list[int | None] = []
-    bad_values: list[bool] = []
-
-    for value in series:
-        if pd.isna(value) or str(value).strip() == "":
-            output_values.append(None)
-            bad_values.append(True)
-            continue
-
-        timestamp = pd.to_datetime(value, errors="coerce")
-        if pd.isna(timestamp):
-            output_values.append(None)
-            bad_values.append(True)
-            continue
-
-        try:
-            if timestamp.tzinfo is None:
-                timestamp = timestamp.tz_localize(
-                    LOCAL_TIMEZONE,
-                    ambiguous="NaT",
-                    nonexistent="shift_forward",
-                )
-            else:
-                timestamp = timestamp.tz_convert(LOCAL_TIMEZONE)
-
-            if pd.isna(timestamp):
-                output_values.append(None)
-                bad_values.append(True)
-                continue
-
-            utc_timestamp = timestamp.tz_convert("UTC")
-            output_values.append(int(utc_timestamp.timestamp() * 1000))
-            bad_values.append(False)
-        except Exception:
-            output_values.append(None)
-            bad_values.append(True)
-
-    return pd.Series(output_values, dtype="Int64"), pd.Series(bad_values, dtype=bool)
-
-
 def parse_datetime_to_epoch_ms(series: pd.Series) -> tuple[pd.Series, pd.Series]:
-    source = series.astype("string")
-    blank = source.isna() | source.str.strip().eq("")
-    parsed = pd.to_datetime(source, errors="coerce", cache=True)
+    """
+    Parse EDM timestamps to epoch milliseconds.
 
-    try:
-        if parsed.dt.tz is None:
-            parsed_utc = parsed.dt.tz_localize(
-                LOCAL_TIMEZONE,
-                ambiguous="NaT",
-                nonexistent="shift_forward",
-            ).dt.tz_convert("UTC")
-        else:
-            parsed_utc = parsed.dt.tz_convert("UTC")
-    except (AttributeError, TypeError, ValueError):
-        # Mixed aware and naive timestamps are uncommon in these files. If they
-        # appear, use the scalar policy-preserving parser instead of guessing.
-        return parse_datetime_to_epoch_ms_scalar(series)
+    We transcribe what the companies publish rather than second-guessing it.
+    Their stop/start times are naive ISO-8601 strings carrying no offset, and we
+    assume they mean UK local time, with British Summer Time already applied
+    where it applies. That assumption is made explicit by localising to
+    LOCAL_TIMEZONE before converting to UTC.
 
-    bad_values = blank | parsed_utc.isna()
-    utc_epoch = pd.Timestamp("1970-01-01", tz="UTC")
-    epoch_ms = ((parsed_utc - utc_epoch) / pd.Timedelta(milliseconds=1)).round().astype("Int64")
-    epoch_ms = epoch_ms.mask(bad_values, pd.NA)
+    Two hours a year cannot be transcribed literally, because UK local time does
+    not map 1:1 onto UTC across a clock change. Both are resolved so that no
+    event is ever dropped: a time in the hour that repeats each autumn is read
+    as the first (BST) occurrence, and a time in the hour that is skipped each
+    spring is nudged forward onto the hour that does exist.
+
+    Values that cannot be parsed at all become NA and are counted as bad.
+    """
+    parsed = pd.to_datetime(series, format="ISO8601", errors="coerce")
+    bad_values = parsed.isna()
+
+    utc = parsed.dt.tz_localize(
+        LOCAL_TIMEZONE,
+        ambiguous=True,
+        nonexistent="shift_forward",
+    ).dt.tz_convert("UTC")
+
+    epoch_ms = ((utc - pd.Timestamp("1970-01-01", tz="UTC")) // pd.Timedelta("1ms")).astype("Int64")
     return epoch_ms, bad_values.astype(bool)
 
 
