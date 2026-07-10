@@ -22,6 +22,7 @@ source of truth: the JSON is built from it and validated against it.
 from __future__ import annotations
 
 import json
+import logging
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -99,6 +100,25 @@ API_LON_FIELD = "Longitude"
 API_WATERCOURSE_FIELD = "ReceivingWaterCourse"
 
 
+logger = logging.getLogger(__name__)
+
+
+class LevelPrefixFormatter(logging.Formatter):
+    """Print INFO lines bare, and prefix anything more severe with its level."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        message = super().format(record)
+        if record.levelno <= logging.INFO:
+            return message
+        return f"{record.levelname}: {message}"
+
+
+def configure_logging() -> None:
+    handler = logging.StreamHandler()
+    handler.setFormatter(LevelPrefixFormatter("%(message)s"))
+    logging.basicConfig(level=logging.INFO, handlers=[handler], force=True)
+
+
 def ensure_output_folder() -> None:
     """Create the output folder if it doesn't exist."""
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -119,7 +139,7 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
     offset = 0
     seen_page_signatures: set[str] = set()
 
-    print(f"Fetching {company} API data from ArcGIS...")
+    logger.info("Fetching %s API data from ArcGIS...", company)
     for _page_number in range(ARCGIS_MAX_PAGES):
         params = {
             **base_params,
@@ -141,16 +161,18 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
         features = payload.get("features") or []
         page_signature = json.dumps(features[:3], sort_keys=True, default=str)
         if page_signature in seen_page_signatures and features:
-            print("  WARNING: ArcGIS returned a repeated page; stopping pagination to avoid duplicates.")
+            logger.warning("ArcGIS returned a repeated page; stopping pagination to avoid duplicates.")
             break
         seen_page_signatures.add(page_signature)
 
         all_features.extend(features)
 
         exceeded = bool(payload.get("exceededTransferLimit"))
-        print(
-            f"  fetched page offset={offset}, features={len(features)}, "
-            f"exceededTransferLimit={exceeded}"
+        logger.info(
+            "  fetched page offset=%s, features=%s, exceededTransferLimit=%s",
+            offset,
+            len(features),
+            exceeded,
         )
 
         if not exceeded and len(features) < ARCGIS_PAGE_SIZE:
@@ -160,7 +182,7 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
 
         offset += len(features)
     else:
-        print(f"  WARNING: reached ARCGIS_MAX_PAGES={ARCGIS_MAX_PAGES}; stopping pagination.")
+        logger.warning("reached ARCGIS_MAX_PAGES=%s; stopping pagination.", ARCGIS_MAX_PAGES)
 
     full_payload = {
         "type": "FeatureCollection",
@@ -171,7 +193,7 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> dict[str, Any]:
             "features_fetched": len(all_features),
         },
     }
-    print(f"Fetched {len(all_features)} API features for {company}.")
+    logger.info("Fetched %s API features for %s.", len(all_features), company)
     return full_payload
 
 
@@ -368,9 +390,9 @@ def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]
         return pd.DataFrame(), csv_files, errors
 
     combined = pd.concat(frames, ignore_index=True)
-    print(f"Loaded {len(combined)} rows for {company} from {len(frames)} CSV file(s).")
+    logger.info("Loaded %s rows for %s from %s CSV file(s).", len(combined), company, len(frames))
     for error in errors:
-        print(f"  WARNING: {error}")
+        logger.warning("%s", error)
     return combined, csv_files, errors
 
 
@@ -519,7 +541,7 @@ def report_unmatched_permits(company: str, match_report: pd.DataFrame) -> None:
     """Name every EDM permit that has no exact match in the Storm Overflow Hub."""
     unmatched = match_report[match_report["match_status"] != "matched"]
     if unmatched.empty:
-        print(f"\nAll {company} permits matched the Storm Overflow Hub.")
+        logger.info("\nAll %s permits matched the Storm Overflow Hub.", company)
         return
 
     reasons = {
@@ -530,17 +552,22 @@ def report_unmatched_permits(company: str, match_report: pd.DataFrame) -> None:
     permits = unmatched[["normalised_permit_key", "match_status"]].drop_duplicates()
     rows = int(len(unmatched))
 
-    print(
-        f"\n{'!' * 70}\n"
-        f"WARNING: {len(permits)} {company} permit(s) did not match the "
-        f"Storm Overflow Hub, affecting {rows} event row(s).\n"
-        f"These rows have null X, Y and ReceivingWaterCourse.\n"
-        f"{'!' * 70}"
+    banner = "!" * 70
+    logger.info("")
+    logger.warning(
+        "%s\n%s %s permit(s) did not match the Storm Overflow Hub, "
+        "affecting %s event row(s).\n"
+        "These rows have null X, Y and ReceivingWaterCourse.\n%s",
+        banner,
+        len(permits),
+        company,
+        rows,
+        banner,
     )
     for permit, status in permits.sort_values("normalised_permit_key").itertuples(index=False):
         phrase = reasons.get(status, "unmatched against")
         shown = permit or "<blank>"
-        print(f"  EIR ID {shown} {phrase} matching stormoverflow hub")
+        logger.warning("EIR ID %s %s matching stormoverflow hub", shown, phrase)
 
 
 def empty_company_summary(company: str, csv_files: list[Path], message: str) -> dict[str, Any]:
@@ -570,22 +597,22 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
     with json_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
 
-    print(f"\nFirst JSON keys for {company}: {list(data.keys())[:5]}")
-    print("Structural comparison against the target schema:")
-    print(f"  JSON keys match: {validation['keys_match']}")
-    print(f"  JSON orientation matches: {validation['orientation_matches']}")
-    print(f"  StartDateTime/StopDateTime are epoch milliseconds: {validation['datetime_epoch_ms']}")
-    print(f"  X/Y are British National Grid values, not lon/lat: {validation['xy_bng']}")
-    print(f"  OngoingEvent is boolean false: {validation['ongoing_false']}")
+    logger.info("\nFirst JSON keys for %s: %s", company, list(data.keys())[:5])
+    logger.info("Structural comparison against the target schema:")
+    logger.info("  JSON keys match: %s", validation["keys_match"])
+    logger.info("  JSON orientation matches: %s", validation["orientation_matches"])
+    logger.info("  StartDateTime/StopDateTime are epoch milliseconds: %s", validation["datetime_epoch_ms"])
+    logger.info("  X/Y are British National Grid values, not lon/lat: %s", validation["xy_bng"])
+    logger.info("  OngoingEvent is boolean false: %s", validation["ongoing_false"])
 
 
 def enrich_company(company: str, api_url: str) -> dict[str, Any]:
-    print(f"\n=== Processing {company} ===")
+    logger.info("\n=== Processing %s ===", company)
     raw_df, csv_files, load_errors = load_company_csvs(company)
 
     if raw_df.empty:
         message = "; ".join(load_errors) if load_errors else "No input rows found."
-        print(f"Skipping {company}: {message}")
+        logger.warning("Skipping %s: %s", company, message)
         return empty_company_summary(company, csv_files, message)
 
     api_payload = fetch_arcgis_geojson(company, api_url)
@@ -699,9 +726,9 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
         "error_message": "; ".join(load_errors),
     }
 
-    print(f"Wrote JSON: {json_path}")
-    print(f"\nFirst 3 enriched rows for {company}:")
-    print(output_df.head(3).to_string(index=False))
+    logger.info("Wrote JSON: %s", json_path)
+    logger.info("\nFirst 3 enriched rows for %s:", company)
+    logger.info("%s", output_df.head(3).to_string(index=False))
     print_json_comparison(company, json_path, validation)
 
     return summary
@@ -717,8 +744,9 @@ def selected_companies() -> list[str]:
 
 
 def main() -> None:
-    print("Starting reusable EDM CSV to JSON pipeline.")
-    print(f"Target output schema: {OUTPUT_COLUMNS}")
+    configure_logging()
+    logger.info("Starting reusable EDM CSV to JSON pipeline.")
+    logger.info("Target output schema: %s", OUTPUT_COLUMNS)
     ensure_output_folder()
 
     summaries = []
@@ -726,17 +754,17 @@ def main() -> None:
         try:
             summaries.append(enrich_company(company, COMPANIES[company]))
         except Exception as exc:
-            print(f"ERROR: {company} failed, continuing to next company. Details: {exc}")
+            logger.error("%s failed, continuing to next company: %s", company, exc, exc_info=True)
             summaries.append(empty_company_summary(company, [], str(exc)))
 
-    print("\n=== Pipeline complete ===")
-    print(f"JSON outputs: {OUTPUT_ROOT}")
+    logger.info("\n=== Pipeline complete ===")
+    logger.info("JSON outputs: %s", OUTPUT_ROOT)
 
     overall = pd.DataFrame(summaries)
     if not overall.empty:
         # QC is reported to stdout only: the pipeline writes JSON and nothing else.
-        print("\nValidation summary:")
-        print(overall[["company", "total_output_rows", "matched_rows", "unmatched_rows", "json_validation_passed"]].to_string(index=False))
+        logger.info("\nValidation summary:")
+        logger.info("%s", overall[["company", "total_output_rows", "matched_rows", "unmatched_rows", "json_validation_passed"]].to_string(index=False))
 
 
 if __name__ == "__main__":
