@@ -32,6 +32,36 @@ The core script is `update_all.py` which is called automatically every 15 minute
 
 The script `update.py` is included for legacy purposes, and updates only Thames Water data (but is needed for the historical data provided only by Thames).
 
+## Output data
+ [![License:CC BY SA](https://licensebuttons.net/l/by-sa/4.0/88x31.png)](https://creativecommons.org/licenses/by-sa/4.0/)
+
+The live downstream impact of Combined Sewage Overflow (CSO) discharge events **is freely available** under a [CC-BY-SA](https://creativecommons.org/licenses/by-sa/4.0/) license. The links in the table below give access to the data as `.geoJSON` files. The data are updated automatically every ~20 minutes (but the URL remains the same). These can be incorporated into your own projects, web-apps, or GIS projects but please attribute the source as `www.sewagemap.co.uk`. It'd be wonderful to hear about any projects you use this data in, so please do [reach out to me](https://alexlipp.github.io/) to let me know, or if I can be of any assistance.
+
+The _Downstream impacted reaches_ is a `LineString` feature-collection simply showing the sections of a river which are downstream of current discharges, and optionally those in the last 48 hrs. These are the brown lines on `www.sewagemap.co.uk`. 
+
+The _Downstream Impact Information_ is a `Point` feature-collection which details at each pixel in a drainage network 1) the number of discharges upstream, 2) the number of discharges per unit of upstream area, and 3) A list of the names (or permit numbers) of discharging CSOs upstream.  
+
+### Water Company Data Table
+
+ **Disclaimer: whilst we make every effort to ensure the accuracy of this data, we cannot guarantee it and it should not be used for any critical purposes.**  
+
+Water Company | Downstream Impacted Reaches | Downstream Impact Information | Last Updated 
+--- | --- | --- | ---
+Thames Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/thames/thames_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/thames/thames_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/thames/thames_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/thames/thames_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/thames/thames_timestamp.txt)
+Anglian Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/anglian/anglian_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/anglian/anglian_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/anglian/anglian_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/anglian/anglian_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/anglian/anglian_timestamp.txt)
+United Utilities | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/united/united_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/united/united_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/united/united_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/united/united_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/united/united_timestamp.txt)
+Southern Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southern/southern_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southern/southern_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southern/southern_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southern/southern_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southern/southern_timestamp.txt)
+Northumbrian Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/northumbrian/northumbrian_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/northumbrian/northumbrian_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/northumbrian/northumbrian_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/northumbrian/northumbrian_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/northumbrian/northumbrian_timestamp.txt)
+Severn Trent Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/severntrent/severntrent_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/severntrent/severntrent_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/severntrent/severntrent_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/severntrent/severntrent_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/severntrent/severntrent_timestamp.txt)
+Wessex Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/wessex/wessex_timestamp.txt)
+Yorkshire Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/yorkshire/yorkshire_timestamp.txt)
+SouthWest Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/southwest/southwest_timestamp.txt)
+ <!--Welsh Water | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_now_incl_48hrs.geojson) | [Current spills](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_info_now_excl_48hrs.geojson); [Spills within last 48hrs](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_info_now_incl_48hrs.geojson) | [Timestamp](https://d1kmd884co9q6x.cloudfront.net/downstream_impact/welsh/welsh_timestamp.txt)-->
+
+### Thames Water historical data 
+
+We process the Thames Water historical spill API which records stop/start event histories and store it as a table of discharge events with attributes suc as `StartTime` and `Duration`. You can get this data (in `.json` format) for discharge events [here](https://d1kmd884co9q6x.cloudfront.net/discharges_to_date/up_to_now.json) and for offline periods [here](https://d1kmd884co9q6x.cloudfront.net/discharges_to_date/up_to_now_offline.json).  
+ 
 ## Source data 
 
 The live EDM data used to map downstream sections is sourced as follows:
@@ -44,17 +74,29 @@ The live EDM data used to map downstream sections is sourced as follows:
 
 ## Building historical company JSON
 
-Cleaned EDM CSVs in `edm_data/<company>/` can be enriched with current Stream API
-metadata and converted to the same column-oriented JSON contract as
-`edm_data/thames.json`:
+Historical EDM stop/start records obtained via EIR requests are converted into
+the same column-oriented JSON contract the front end already consumes. The
+pipeline lives in `json_cleaning_python_pipeline/`:
 
 ```shell
-python -m pip install -r requirements-company-json.txt
-python scripts/build_company_json.py --company yorkshire --refresh-api
-python scripts/build_company_json.py --company all --incremental
+cd json_cleaning_python_pipeline
+python -m pip install -r requirements.txt
+python build_water_company_json.py
 ```
 
-Outputs, API caches, per-input intermediates, manifests, missing-ID reports, and
-build summaries are written below `outputs/`. A final company JSON is not written
-when fewer than 95% of event rows match API metadata unless `--allow-low-match`
-is explicitly supplied.
+Input CSVs live in `json_cleaning_python_pipeline/input_stopstart_data/<company>/`,
+where `<company>` is one of the keys of `COMPANIES` in the script. Choose which
+companies to process by editing `ONLY_COMPANIES` at the top of the script.
+
+One JSON per company is written to `json_cleaning_python_pipeline/outputs/`, and
+nothing else: there are no intermediate CSVs and no API cache. QC is reported to
+stdout, and every permit that fails to match the Storm Overflow Hub is named.
+
+Note that `json_validation_passed` in the summary table checks only the shape of
+the JSON, not whether its rows matched the API. Read `matched_rows` against
+`unmatched_rows` before publishing a file.
+
+See [`json_cleaning_python_pipeline/README_json.md`](json_cleaning_python_pipeline/README_json.md)
+for the input schema and QC details, and
+[`json_cleaning_python_pipeline/data_transparency.md`](json_cleaning_python_pipeline/data_transparency.md)
+for the provenance of each company's source data.
