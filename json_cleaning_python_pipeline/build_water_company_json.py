@@ -292,11 +292,43 @@ def extract_coordinates(
     return convert_lonlat_to_bng(lon, lat, transformer)
 
 
+API_LOOKUP_COLUMNS = ["normalised_permit_key", "api_matched_id", "X", "Y", "ReceivingWaterCourse"]
+
+
+def report_duplicate_api_id(key: str, records: list[dict[str, Any]]) -> None:
+    """Warn that an API ID appears more than once, showing every row it appears on."""
+    banner = "!" * 70
+    logger.info("")
+    logger.warning(
+        "%s\nAPI ID %s appears %s times in the Storm Overflow Hub. "
+        "Taking the first and ignoring the rest.\n%s",
+        banner,
+        key,
+        len(records),
+        banner,
+    )
+    for position, record in enumerate(records, start=1):
+        props = feature_properties(record["feature"])
+        rendered = ", ".join(f"{name}={props[name]!r}" for name in sorted(props))
+        logger.warning(
+            "  occurrence %s -> X=%s Y=%s | %s",
+            position,
+            record["X"],
+            record["Y"],
+            rendered,
+        )
+
+
 def build_api_lookup(
     features: list[dict[str, Any]],
     transformer: Transformer,
-) -> dict[str, Any]:
-    """Build a lookup of API features by normalised permit number."""
+) -> tuple[pd.DataFrame, int]:
+    """
+    Build a one-row-per-permit table of API metadata, keyed for joining.
+
+    An ID that appears more than once is reported in full and resolved by taking
+    the first occurrence, rather than dropped.
+    """
     records_by_exact: dict[str, list[dict[str, Any]]] = defaultdict(list)
 
     for feature in features:
@@ -322,25 +354,30 @@ def build_api_lookup(
             )
 
         watercourse = get_property(props, API_WATERCOURSE_FIELD)
-        record = {
-            "feature": feature,
-            "raw_id": raw_id,
-            "exact_key": exact_key,
-            "X": x_value,
-            "Y": y_value,
-            "ReceivingWaterCourse": watercourse if pd.notna(watercourse) else None,
-        }
-        records_by_exact[exact_key].append(record)
+        records_by_exact[exact_key].append(
+            {
+                "feature": feature,
+                "normalised_permit_key": exact_key,
+                "api_matched_id": raw_id,
+                "X": x_value,
+                "Y": y_value,
+                "ReceivingWaterCourse": watercourse if pd.notna(watercourse) else None,
+            }
+        )
 
-    exact_lookup = {key: values[0] for key, values in records_by_exact.items() if len(values) == 1}
-    duplicate_exact_keys = {key for key, values in records_by_exact.items() if len(values) > 1}
+    duplicate_api_ids = 0
+    chosen: list[dict[str, Any]] = []
+    for key in sorted(records_by_exact):
+        records = records_by_exact[key]
+        if len(records) > 1:
+            duplicate_api_ids += 1
+            report_duplicate_api_id(key, records)
+        chosen.append(records[0])
 
-    return {
-        "exact_lookup": exact_lookup,
-        "duplicate_exact_keys": duplicate_exact_keys,
-        "records_by_exact": records_by_exact,
-        "duplicate_api_ids": len(duplicate_exact_keys),
-    }
+    frame = pd.DataFrame(chosen, columns=API_LOOKUP_COLUMNS)
+    frame["X"] = frame["X"].astype("Int64")
+    frame["Y"] = frame["Y"].astype("Int64")
+    return frame, duplicate_api_ids
 
 
 def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]]:
@@ -414,23 +451,6 @@ def parse_datetime_to_epoch_ms(series: pd.Series) -> tuple[pd.Series, pd.Series]
     return epoch_ms, bad_values.astype(bool)
 
 
-def match_keys_to_api(
-    normalised_key: str,
-    lookup: dict[str, Any],
-) -> tuple[dict[str, Any] | None, str, str]:
-    """Match an EDM permit to an API record. Exact matches only, no fuzzy fallback."""
-    if not normalised_key:
-        return None, "unmatched_blank_permit", ""
-
-    if normalised_key in lookup["exact_lookup"]:
-        return lookup["exact_lookup"][normalised_key], "matched", "exact"
-
-    if normalised_key in lookup["duplicate_exact_keys"]:
-        return None, "unmatched_duplicate_api_id", ""
-
-    return None, "unmatched", ""
-
-
 def validate_output_json(json_path: Path) -> dict[str, bool]:
     with json_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -490,9 +510,9 @@ def validate_output_json(json_path: Path) -> dict[str, bool]:
     }
 
 
-def report_unmatched_permits(company: str, match_report: pd.DataFrame) -> None:
+def report_unmatched_permits(company: str, events: pd.DataFrame) -> None:
     """Name every EDM permit that has no exact match in the Storm Overflow Hub."""
-    unmatched = match_report[match_report["match_status"] != "matched"]
+    unmatched = events[events["match_status"] != "matched"]
     if unmatched.empty:
         logger.info("\nAll %s permits matched the Storm Overflow Hub.", company)
         return
@@ -500,7 +520,6 @@ def report_unmatched_permits(company: str, match_report: pd.DataFrame) -> None:
     reasons = {
         "unmatched": "not found in",
         "unmatched_blank_permit": "blank permit number, cannot look up in",
-        "unmatched_duplicate_api_id": "ambiguous (duplicate ID) in",
     }
     permits = unmatched[["normalised_permit_key", "match_status"]].drop_duplicates()
     rows = int(len(unmatched))
@@ -589,74 +608,31 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
     renamed["Duration"] = pd.to_numeric(renamed["Duration"], errors="coerce")
 
     require_api_schema(company, features)
-    lookup = build_api_lookup(features, transformer)
+    api_frame, duplicate_api_ids = build_api_lookup(features, transformer)
 
-    match_rows = []
-    x_values = []
-    y_values = []
-    watercourse_values = []
+    # One API row per permit, so a left join attaches metadata to every event
+    # without changing the row count.
+    merged = renamed.merge(api_frame, on="normalised_permit_key", how="left")
+    matched = merged["api_matched_id"].notna()
+    merged["match_status"] = "unmatched"
+    merged.loc[matched, "match_status"] = "matched"
+    merged.loc[merged["normalised_permit_key"].eq(""), "match_status"] = "unmatched_blank_permit"
+    merged["OngoingEvent"] = False
 
-    for row_values in zip(
-        renamed["LocationName"],
-        renamed["PermitNumber"],
-        renamed["normalised_permit_key"],
-        bad_start,
-        bad_stop,
-    ):
-        location_name, permit_number, normalised_key, row_bad_start, row_bad_stop = row_values
-        record, match_status, match_type = match_keys_to_api(normalised_key, lookup)
-        if record:
-            x_value = record["X"]
-            y_value = record["Y"]
-            watercourse = record["ReceivingWaterCourse"]
-            api_matched_id = record["raw_id"]
-        else:
-            x_value = None
-            y_value = None
-            watercourse = None
-            api_matched_id = None
-
-        x_values.append(x_value)
-        y_values.append(y_value)
-        watercourse_values.append(watercourse)
-
-        match_rows.append(
-            {
-                "LocationName": location_name,
-                "PermitNumber": permit_number,
-                "normalised_permit_key": normalised_key,
-                "match_status": match_status,
-                "match_type": match_type,
-                "api_matched_id_value": api_matched_id,
-                "X": x_value,
-                "Y": y_value,
-                "ReceivingWaterCourse": watercourse,
-                "missing_x": x_value is None,
-                "missing_y": y_value is None,
-                "missing_receiving_watercourse": watercourse is None or pd.isna(watercourse) or str(watercourse).strip() == "",
-                "bad_start_time": bool(row_bad_start),
-                "bad_stop_time": bool(row_bad_stop),
-            }
-        )
-
-    renamed["X"] = pd.Series(x_values, dtype="Int64")
-    renamed["Y"] = pd.Series(y_values, dtype="Int64")
-    renamed["ReceivingWaterCourse"] = watercourse_values
-    renamed["OngoingEvent"] = False
-
-    output_df = renamed[OUTPUT_COLUMNS].copy()
+    output_df = merged[OUTPUT_COLUMNS].copy()
 
     json_path = OUTPUT_ROOT / f"{company}.json"
     output_df.to_json(json_path, orient="columns")
 
     validation = validate_output_json(json_path)
-    match_report = pd.DataFrame(match_rows)
-    report_unmatched_permits(company, match_report)
+    report_unmatched_permits(company, merged)
 
-    matched_rows = int((match_report["match_status"] == "matched").sum())
-    unmatched_rows = int(len(match_report) - matched_rows)
-    matched_permits = match_report.loc[match_report["match_status"] == "matched", "PermitNumber"].apply(normalise_permit)
-    unmatched_permits = match_report.loc[match_report["match_status"] != "matched", "PermitNumber"].apply(normalise_permit)
+    matched_rows = int(matched.sum())
+    unmatched_rows = int(len(merged) - matched_rows)
+    matched_permits = merged.loc[matched, "normalised_permit_key"]
+    unmatched_permits = merged.loc[~matched, "normalised_permit_key"]
+    watercourse = merged["ReceivingWaterCourse"]
+    missing_watercourse = watercourse.isna() | watercourse.astype("string").str.strip().eq("")
 
     summary = {
         "company": company,
@@ -669,12 +645,12 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
         "unmatched_rows": unmatched_rows,
         "matched_unique_permits": int(matched_permits[matched_permits != ""].nunique()),
         "unmatched_unique_permits": int(unmatched_permits[unmatched_permits != ""].nunique()),
-        "rows_missing_x": int(match_report["missing_x"].sum()),
-        "rows_missing_y": int(match_report["missing_y"].sum()),
-        "rows_missing_receiving_watercourse": int(match_report["missing_receiving_watercourse"].sum()),
+        "rows_missing_x": int(merged["X"].isna().sum()),
+        "rows_missing_y": int(merged["Y"].isna().sum()),
+        "rows_missing_receiving_watercourse": int(missing_watercourse.sum()),
         "rows_bad_start_time": int(bad_start.sum()),
         "rows_bad_stop_time": int(bad_stop.sum()),
-        "duplicate_api_ids": int(lookup["duplicate_api_ids"]),
+        "duplicate_api_ids": int(duplicate_api_ids),
         "json_validation_passed": bool(validation["passed"]),
         "error_message": "; ".join(load_errors),
     }
