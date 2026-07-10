@@ -356,7 +356,10 @@ def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[Path], list[str]
     errors = []
     for csv_path in csv_files:
         try:
-            frame = pd.read_csv(csv_path)
+            # Read everything as text. Left to infer, pandas types an all-numeric
+            # permit column as float64 the moment it contains a blank, so permit
+            # 103283 arrives as "103283.0" and matches nothing.
+            frame = pd.read_csv(csv_path, dtype=str)
         except Exception as exc:
             errors.append(f"{csv_path.name}: could not read CSV: {exc}")
             continue
