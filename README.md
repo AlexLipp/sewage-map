@@ -76,19 +76,19 @@ The live EDM data used to map downstream sections is sourced as follows:
 
 Historical EDM stop/start records obtained via EIR requests are converted into
 the same column-oriented JSON contract the front end already consumes. The
-pipeline lives in `json_cleaning_python_pipeline/`:
+pipeline lives in `clean_EIR_stopstartdata/`:
 
 ```shell
-cd json_cleaning_python_pipeline
+cd clean_EIR_stopstartdata
 python -m pip install -r requirements.txt
-python build_water_company_json.py
+python build_water_company_jsons.py
 ```
 
-Input CSVs live in `json_cleaning_python_pipeline/input_stopstart_data/<company>/`,
+Input CSVs live in `clean_EIR_stopstartdata/input_stopstart_data/<company>/`,
 where `<company>` is one of the keys of `COMPANIES` in the script. Choose which
 companies to process by editing `ONLY_COMPANIES` at the top of the script.
 
-One JSON per company is written to `json_cleaning_python_pipeline/outputs/`, and
+One JSON per company is written to `clean_EIR_stopstartdata/output_jsons/`, and
 nothing else: there are no intermediate CSVs and no API cache. QC is reported to
 stdout, and every permit that fails to match the Storm Overflow Hub is named.
 
@@ -96,7 +96,6 @@ Note that `json_validation_passed` in the summary table checks only the shape of
 the JSON, not whether its rows matched the API. Read `matched_rows` against
 `unmatched_rows` before publishing a file.
 
-See [`json_cleaning_python_pipeline/README_json.md`](json_cleaning_python_pipeline/README_json.md)
-for the input schema and QC details, and
-[`json_cleaning_python_pipeline/data_transparency.md`](json_cleaning_python_pipeline/data_transparency.md)
-for the provenance of each company's source data.
+See [`clean_EIR_stopstartdata/README.md`](clean_EIR_stopstartdata/README.md) for
+the input schema, the QC output, and the provenance of each company's source
+data.

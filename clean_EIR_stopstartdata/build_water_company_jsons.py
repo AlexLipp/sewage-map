@@ -6,13 +6,13 @@ How to run in VS Code:
    pip install -r requirements.txt
 2. Put stop/start CSV files inside input_stopstart_data/{company}/, where
    {company} is exactly one of the keys of COMPANIES below.
-3. Run build_water_company_json.py.
+3. Run build_water_company_jsons.py.
 4. Read the printed validation summary before trusting the JSON.
 5. Set ONLY_COMPANIES to the companies you want to process. The comment beside
    it lists all eight, to paste in when you want the lot.
 
 The pipeline reads input_stopstart_data/ and writes one JSON per company to
-outputs/. It writes nothing else: API responses are fetched fresh each run and
+output_jsons/. It writes nothing else: API responses are fetched fresh each run and
 QC is reported to stdout.
 
 The target output schema is declared by OUTPUT_COLUMNS below. It is the single
@@ -42,11 +42,11 @@ from pyproj import Transformer
 # Companies to process this run. For all of them:
 # ["anglian", "northumbrian", "severn_trent", "south_west_water",
 #  "southern_water", "united_utilities", "wessex", "yorkshire"]
-ONLY_COMPANIES = ["yorkshire", "united_utilities"]
+ONLY_COMPANIES = ["yorkshire", "united_utilities", "southern_water", "south_west_water", "severn_trent", "northumbrian", "anglian", "wessex"]
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 INPUT_ROOT = PROJECT_ROOT / "input_stopstart_data"
-OUTPUT_ROOT = PROJECT_ROOT / "outputs"
+OUTPUT_ROOT = PROJECT_ROOT / "output_jsons"
 
 LOCAL_TIMEZONE = "Europe/London"
 ARCGIS_PAGE_SIZE = 2000

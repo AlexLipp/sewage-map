@@ -7,5 +7,5 @@ gmt.history
 *.geojson
 working.ipynb
 __pycache__/
-outputs/
+output_jsons/
 !requirements.txt
