@@ -129,7 +129,8 @@ Always inspect the QC files before using the JSON on the website.
 
 The QC reports show matched permits, unmatched permits, missing coordinates, missing watercourses, bad dates, and JSON validation status.
 
-## Important notes
+
+Important Notes
 
 The APIs often provide longitude/latitude, not Thames-style `X/Y`.
 
@@ -138,3 +139,4 @@ The script converts longitude/latitude into British National Grid coordinates us
 Do not manually use longitude/latitude as `X/Y`.
 
 Historical EDM records are not live events, so `OngoingEvent` is set to `false` for every row.
+
