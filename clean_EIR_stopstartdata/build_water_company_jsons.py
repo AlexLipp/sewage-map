@@ -54,7 +54,6 @@ import pandas as pd
 import requests
 from pyproj import Transformer
 
-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
@@ -62,7 +61,16 @@ from pyproj import Transformer
 # Companies to process this run. For all of them:
 # ["anglian", "northumbrian", "severn_trent", "south_west_water",
 #  "southern_water", "united_utilities", "wessex", "yorkshire"]
-ONLY_COMPANIES = ["yorkshire", "united_utilities", "southern_water", "south_west_water", "severn_trent", "northumbrian", "anglian", "wessex"]
+ONLY_COMPANIES = [
+    "yorkshire",
+    "united_utilities",
+    "southern_water",
+    "south_west_water",
+    "severn_trent",
+    "northumbrian",
+    "anglian",
+    "wessex",
+]
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 INPUT_ROOT = PROJECT_ROOT / "input_stopstart_data"
@@ -184,7 +192,9 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> list[dict[str, Any]]:
         features = payload.get("features") or []
         page_signature = json.dumps(features[:3], sort_keys=True, default=str)
         if page_signature in seen_page_signatures and features:
-            logger.warning("ArcGIS returned a repeated page; stopping pagination to avoid duplicates.")
+            logger.warning(
+                "ArcGIS returned a repeated page; stopping pagination to avoid duplicates."
+            )
             break
         seen_page_signatures.add(page_signature)
 
@@ -205,7 +215,9 @@ def fetch_arcgis_geojson(company: str, api_url: str) -> list[dict[str, Any]]:
 
         offset += len(features)
     else:
-        logger.warning("reached ARCGIS_MAX_PAGES=%s; stopping pagination.", ARCGIS_MAX_PAGES)
+        logger.warning(
+            "reached ARCGIS_MAX_PAGES=%s; stopping pagination.", ARCGIS_MAX_PAGES
+        )
 
     logger.info("Fetched %s API features for %s.", len(all_features), company)
     return all_features
@@ -245,7 +257,8 @@ def require_api_schema(company: str, features: list[dict[str, Any]]) -> None:
     missing = [
         field
         for field in (API_ID_FIELD, API_LAT_FIELD, API_LON_FIELD, API_WATERCOURSE_FIELD)
-        if get_property(props, field) is None and field.lower() not in {k.lower() for k in props}
+        if get_property(props, field) is None
+        and field.lower() not in {k.lower() for k in props}
     ]
     if missing:
         raise RuntimeError(
@@ -273,7 +286,9 @@ def in_bng_bounds(x_value: float, y_value: float) -> bool:
     return 0 <= x_value <= 700000 and 0 <= y_value <= 1300000
 
 
-def convert_lonlat_to_bng(lon: Any, lat: Any, transformer: Transformer) -> tuple[int | None, int | None]:
+def convert_lonlat_to_bng(
+    lon: Any, lat: Any, transformer: Transformer
+) -> tuple[int | None, int | None]:
     """
     Convert WGS84 lon/lat to British National Grid eastings/northings.
 
@@ -305,7 +320,13 @@ def extract_coordinates(
     return convert_lonlat_to_bng(lon, lat, transformer)
 
 
-API_LOOKUP_COLUMNS = ["normalised_permit_key", "api_matched_id", "X", "Y", "ReceivingWaterCourse"]
+API_LOOKUP_COLUMNS = [
+    "normalised_permit_key",
+    "api_matched_id",
+    "X",
+    "Y",
+    "ReceivingWaterCourse",
+]
 
 
 def report_duplicate_api_id(key: str, records: list[dict[str, Any]]) -> None:
@@ -413,7 +434,9 @@ def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[str]]:
             errors.append(f"{csv_path.name}: could not read CSV: {exc}")
             continue
 
-        missing = [column for column in REQUIRED_INPUT_COLUMNS if column not in frame.columns]
+        missing = [
+            column for column in REQUIRED_INPUT_COLUMNS if column not in frame.columns
+        ]
         if missing:
             errors.append(f"{csv_path.name}: missing required columns: {missing}")
             continue
@@ -424,7 +447,12 @@ def load_company_csvs(company: str) -> tuple[pd.DataFrame, list[str]]:
         return pd.DataFrame(), errors
 
     combined = pd.concat(frames, ignore_index=True)
-    logger.info("Loaded %s rows for %s from %s CSV file(s).", len(combined), company, len(frames))
+    logger.info(
+        "Loaded %s rows for %s from %s CSV file(s).",
+        len(combined),
+        company,
+        len(frames),
+    )
     for error in errors:
         logger.warning("%s", error)
     return combined, errors
@@ -457,7 +485,9 @@ def parse_datetime_to_epoch_ms(series: pd.Series) -> tuple[pd.Series, pd.Series]
         nonexistent="shift_forward",
     ).dt.tz_convert("UTC")
 
-    epoch_ms = ((utc - pd.Timestamp("1970-01-01", tz="UTC")) // pd.Timedelta("1ms")).astype("Int64")
+    epoch_ms = (
+        (utc - pd.Timestamp("1970-01-01", tz="UTC")) // pd.Timedelta("1ms")
+    ).astype("Int64")
     return epoch_ms, bad_values.astype(bool)
 
 
@@ -474,7 +504,11 @@ def validate_output_json(json_path: Path) -> dict[str, bool]:
 
     def numeric_or_null(column: str) -> bool:
         """Check that every value in a column is a number or null, but never a bool."""
-        return all(value is None or (isinstance(value, (int, float)) and not isinstance(value, bool)) for value in data[column].values())
+        return all(
+            value is None
+            or (isinstance(value, (int, float)) and not isinstance(value, bool))
+            for value in data[column].values()
+        )
 
     datetime_epoch_ms = True
     for column in ["StartDateTime", "StopDateTime"]:
@@ -548,13 +582,17 @@ def report_unmatched_permits(company: str, events: pd.DataFrame) -> None:
         rows,
         banner,
     )
-    for permit, status in permits.sort_values("normalised_permit_key").itertuples(index=False):
+    for permit, status in permits.sort_values("normalised_permit_key").itertuples(
+        index=False
+    ):
         phrase = reasons.get(status, "unmatched against")
         shown = permit or "<blank>"
         logger.warning("EIR ID %s %s matching stormoverflow hub", shown, phrase)
 
 
-def report_bad_timestamps(company: str, bad_start: pd.Series, bad_stop: pd.Series) -> None:
+def report_bad_timestamps(
+    company: str, bad_start: pd.Series, bad_stop: pd.Series
+) -> None:
     """Warn when any start or stop time could not be parsed, leaving a null in the JSON."""
     starts = int(bad_start.sum())
     stops = int(bad_stop.sum())
@@ -581,7 +619,9 @@ def empty_company_summary(company: str) -> dict[str, Any]:
     }
 
 
-def print_json_comparison(company: str, json_path: Path, validation: dict[str, bool]) -> None:
+def print_json_comparison(
+    company: str, json_path: Path, validation: dict[str, bool]
+) -> None:
     """Log how a written JSON measures up against the target schema."""
     with json_path.open("r", encoding="utf-8") as handle:
         data = json.load(handle)
@@ -590,8 +630,13 @@ def print_json_comparison(company: str, json_path: Path, validation: dict[str, b
     logger.info("Structural comparison against the target schema:")
     logger.info("  JSON keys match: %s", validation["keys_match"])
     logger.info("  JSON orientation matches: %s", validation["orientation_matches"])
-    logger.info("  StartDateTime/StopDateTime are epoch milliseconds: %s", validation["datetime_epoch_ms"])
-    logger.info("  All X/Y fall inside the British National Grid: %s", validation["xy_bng"])
+    logger.info(
+        "  StartDateTime/StopDateTime are epoch milliseconds: %s",
+        validation["datetime_epoch_ms"],
+    )
+    logger.info(
+        "  All X/Y fall inside the British National Grid: %s", validation["xy_bng"]
+    )
     logger.info("  OngoingEvent is boolean false: %s", validation["ongoing_false"])
 
 
@@ -620,8 +665,12 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
 
     renamed["normalised_permit_key"] = renamed["PermitNumber"].apply(normalise_permit)
 
-    renamed["StartDateTime"], bad_start = parse_datetime_to_epoch_ms(renamed["StartDateTime"])
-    renamed["StopDateTime"], bad_stop = parse_datetime_to_epoch_ms(renamed["StopDateTime"])
+    renamed["StartDateTime"], bad_start = parse_datetime_to_epoch_ms(
+        renamed["StartDateTime"]
+    )
+    renamed["StopDateTime"], bad_stop = parse_datetime_to_epoch_ms(
+        renamed["StopDateTime"]
+    )
     renamed["Duration"] = pd.to_numeric(renamed["Duration"], errors="coerce")
 
     report_bad_timestamps(company, bad_start, bad_stop)
@@ -635,7 +684,9 @@ def enrich_company(company: str, api_url: str) -> dict[str, Any]:
     matched = merged["api_matched_id"].notna()
     merged["match_status"] = "unmatched"
     merged.loc[matched, "match_status"] = "matched"
-    merged.loc[merged["normalised_permit_key"].eq(""), "match_status"] = "unmatched_blank_permit"
+    merged.loc[merged["normalised_permit_key"].eq(""), "match_status"] = (
+        "unmatched_blank_permit"
+    )
     merged["OngoingEvent"] = False
 
     output_df = merged[OUTPUT_COLUMNS].copy()
@@ -685,7 +736,9 @@ def main() -> None:
         try:
             summaries.append(enrich_company(company, COMPANIES[company]))
         except Exception as exc:
-            logger.error("%s failed, continuing to next company: %s", company, exc, exc_info=True)
+            logger.error(
+                "%s failed, continuing to next company: %s", company, exc, exc_info=True
+            )
             summaries.append(empty_company_summary(company))
 
     logger.info("\n=== Pipeline complete ===")
