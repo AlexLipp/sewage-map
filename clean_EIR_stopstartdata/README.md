@@ -15,9 +15,10 @@ python -m venv .venv
 python -m pip install -r clean_EIR_stopstartdata/requirements.txt
 ```
 
-Place `.csv` or `.xlsx` files under the matching folder. Nested folders are
-discovered and source files are never modified. Legacy `.xls` requires the
-optional `xlrd` package; other workbook formats need explicit support first.
+Place the known `.csv` or `.xlsx` files under the matching folder. Each company
+cleaner contains an explicit list of supported filenames, worksheets, header
+rows, and columns; unknown files are not automatically discovered or guessed.
+Source files are never modified. Other workbook formats need explicit support.
 
 ```text
 raw_data/
@@ -52,15 +53,20 @@ python clean_EIR_stopstartdata/raw_to_standardised/clean_wessex.py
 python clean_EIR_stopstartdata/raw_to_standardised/clean_yorkshire.py
 ```
 
-Use `--dry-run` to validate without replacing CSVs, `--strict` for stricter
-exit checks, or `--self-check` for built-in tests. The eight outputs replace
-the files in `clean_EIR_stopstartdata/input_stopstart_data/` and always use:
+Use `--dry-run` to validate without replacing CSVs, `--strict` to return a
+failure when rows are rejected, or `--self-check` for built-in checks. The
+eight outputs replace the files in
+`clean_EIR_stopstartdata/input_stopstart_data/` and always use:
 
 ```text
 location_name,permit_number,start_time,stop_time,duration_minutes
 ```
 
 Each row remains an individual event; repeated permits are not aggregated.
+Rejected rows, including source filename, worksheet, and physical row number,
+are written under `input_stopstart_data/rejected_rows/`. Supplier-duration QC
+reports are written under `input_stopstart_data/duration_qc/`; supplier
+duration never overrides the duration calculated from event timestamps.
 
 ## Build website JSON
 
