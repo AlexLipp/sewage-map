@@ -307,9 +307,21 @@ def _process_event_chunk(
     events["csv_row_number"] = chunk["_csv_row_number"].to_numpy(dtype=np.int64)
     events["StartDateTime"], bad_start = parse_datetime_to_epoch_ms(events["start_time"])
     events["StopDateTime"], bad_stop = parse_datetime_to_epoch_ms(events["stop_time"])
-    events["Duration"] = pd.to_numeric(events["duration_minutes"], errors="coerce")
-    duration_values = events["Duration"].to_numpy(dtype=float, na_value=np.nan)
+
+    # The company's reported duration is kept only to judge whether the source row is
+    # usable. It is the plain difference between the two local timestamps and carries no
+    # information they do not, so it is not what gets published.
+    source_duration = pd.to_numeric(events["duration_minutes"], errors="coerce")
+    duration_values = source_duration.to_numpy(dtype=float, na_value=np.nan)
     invalid_duration = pd.Series(~np.isfinite(duration_values) | (duration_values < 0), index=events.index)
+
+    # Publish the duration the converted timestamps imply. The two agree everywhere
+    # except across a clock change, where the company's local-clock arithmetic misses the
+    # hour that converting to UTC correctly accounts for: an event running 00:15 BST to
+    # 02:15 GMT lasts three hours, not the two its own paperwork claims. Deriving the
+    # duration here keeps `Duration == StopDateTime - StartDateTime` true by
+    # construction, so the published figure can never contradict the published times.
+    events["Duration"] = (events["StopDateTime"] - events["StartDateTime"]) / 60_000
 
     merged = events.merge(
         api_result["frame"], on="normalised_permit_key", how="left",
@@ -435,12 +447,18 @@ def validate_output_dataframe(output: pd.DataFrame, input_rows: int, excluded_ro
     chronology = bool(output["StopDateTime"].ge(output["StartDateTime"]).all())
     duration_values = output["Duration"].to_numpy(dtype=float, na_value=np.nan)
     duration_valid = bool((np.isfinite(duration_values) & (duration_values >= 0)).all())
+    # Duration must agree with the timestamps it was derived from. This is what catches a
+    # reversion to publishing the company's own figure, which disagrees by exactly an
+    # hour for every event spanning a clock change.
+    implied = (output["StopDateTime"].to_numpy(dtype="float64") - output["StartDateTime"].to_numpy(dtype="float64")) / 60_000
+    duration_matches_timestamps = bool(np.allclose(duration_values, implied, rtol=0, atol=1e-6, equal_nan=True))
     ongoing_false = bool(pd.api.types.is_bool_dtype(output["OngoingEvent"].dtype) and (~output["OngoingEvent"]).all())
     row_accounting = input_rows == len(output) + excluded_rows
     checks = {
         "keys_match": keys_match, "range_index": range_index, "identity_complete": identities,
         "xy_integer": xy_integer, "xy_bng": xy_bng, "datetime_integer": datetime_integer,
         "chronology_valid": chronology, "duration_valid": duration_valid,
+        "duration_matches_timestamps": duration_matches_timestamps,
         "ongoing_false": ongoing_false, "row_accounting": row_accounting,
     }
     checks["passed"] = all(checks.values())
