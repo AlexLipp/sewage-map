@@ -1,5 +1,6 @@
 import boto3
 import json
+from botocore.exceptions import ClientError
 from osgeo import ogr, osr
 
 
@@ -24,10 +25,41 @@ def empty_s3_folder(bucket_name: str, folder_name: str, profile_name: str) -> No
         print(f"No objects found in '\033[92m{folder_name}\033[0m' folder.")
 
 
+def download_file_from_s3(
+    bucket_name: str, object_name: str, file_path: str, profile_name: str
+) -> bool:
+    """Downloads a file from an AWS bucket.
+
+    Returns True if the object was downloaded, and False if it does not exist.
+    Any other error is raised, so a transient S3 failure is never mistaken for a
+    missing object (which callers may treat as "start from scratch")."""
+    session = boto3.Session(profile_name=profile_name)
+    s3 = session.client("s3")
+    try:
+        s3.download_file(bucket_name, object_name, file_path)
+        print(
+            f"File \033[92m{bucket_name}/{object_name}\033[0m downloaded to \033[92m{file_path}\033[0m successfully."
+        )
+        return True
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("404", "NoSuchKey"):
+            print(f"No object found at \033[93m{bucket_name}/{object_name}\033[0m.")
+            return False
+        raise
+
+
 def upload_file_to_s3(
-    file_path: str, bucket_name: str, object_name: str, profile_name: str
+    file_path: str,
+    bucket_name: str,
+    object_name: str,
+    profile_name: str,
+    strict: bool = False,
 ):
-    """Uploads a file to an AWS bucket"""
+    """Uploads a file to an AWS bucket.
+
+    If strict is True, a failed upload raises instead of merely printing. Use
+    strict for anything whose silent failure would leave artefacts inconsistent
+    with each other (e.g. the long-lived history master)."""
     session = boto3.Session(profile_name=profile_name)
     s3 = session.client("s3")
     try:
@@ -45,6 +77,8 @@ def upload_file_to_s3(
 
     except Exception as e:
         print(f"Error uploading file: {str(e)}")
+        if strict:
+            raise
 
 
 def write_timestamp(datetime_string: str, timestamp_filename: str):

@@ -28,9 +28,70 @@ This script relies on the `POOPy` package which I ([Alex](https://alexlipp.githu
 
 ## Usage
 
-The core script is `update_all.py` which is called automatically every 15 minutes. This function, using POOPy functions, calculates a geoJSON file which contains the downstream impact of all active or recently active CSO spills for which EDM data is available. These are automatically uploaded to the Amazon Web Services bucket which hosts them. The data is then fronted using the CloudFront delivery service. The files are read by the `www.sewagemap.co.uk` front-end which visualises them. 
+Two scripts run on a cron schedule, both using POOPy:
 
-The script `update.py` is included for legacy purposes, and updates only Thames Water data (but is needed for the historical data provided only by Thames).
+- **`update_downstream.py`** calculates, for all eleven water companies, geoJSON files containing the downstream impact of active or recently active CSO spills. These are uploaded to the Amazon Web Services bucket which hosts them, fronted by the CloudFront delivery service, and read by the `www.sewagemap.co.uk` front-end.
+- **`update_history.py`** does the same for Thames Water's downstream impact, and additionally maintains the spill *history* tables (Thames is the only company publishing a historical API). It calls **`split_history.py`** to publish those tables as one file per CSO as well.
+
+### Historical data: incremental updates
+
+The Thames alerts API is paginated newest-first at 1000 records per page, and the record now runs to ~77,000 events. Fetching all of it costs ~150 sequential requests, and a single failure part-way through aborts the whole run — which is why the published history went stale.
+
+`update_history.py` therefore keeps a long-lived **master** table on S3 covering the whole record, and each run re-fetches only a recent window from the API and splices it in. In the window the API is the source of truth; outside it the master is left untouched. A typical incremental run makes **one or two API requests instead of ~150**, and takes under a minute.
+
+The window is set by two constants at the top of `update_history.py`:
+
+```python
+LOOKBACK_DAYS = 92   # 3 months. Days the API is treated as authoritative for.
+BUFFER_DAYS = 7      # Extra days fetched, but not trusted, for overlap.
+```
+
+Lower `LOOKBACK_DAYS` for faster runs and fewer API calls; raise it to tolerate a longer cron outage and pick up more of Thames's retrospective edits. Set it to `31` for a one-month window. Both are overridable per run with `--lookback-days` / `--buffer-days`.
+
+If the master is *staler* than the configured window, the window is widened automatically so a cron outage of any length self-heals rather than tearing a permanent hole in the history.
+
+```bash
+python update_history.py                    # normal incremental run
+python update_history.py --dry-run          # fetch, merge and split locally; upload nothing
+python update_history.py --full             # rebuild the whole master from the API
+python update_history.py --skip-downstream  # history only
+```
+
+Because Thames occasionally edits older events, run `--full` periodically (e.g. weekly). That run is slow and may fail — but the incremental runs keep the site current in the meantime, so a failed rebuild is no longer an outage. A suggested crontab:
+
+```cron
+# Incremental history + Thames downstream impact, every 3 hours
+0 */3 * * * cd $SEWAGE && $PY update_history.py >> history.log 2>&1
+# Full rebuild once a week, to pick up retrospective edits
+30 3 * * 0  cd $SEWAGE && $PY update_history.py --full >> history.log 2>&1
+```
+
+### History artefacts
+
+Layout in the `thamessewage` bucket:
+
+| Key | Purpose |
+|---|---|
+| `discharges_to_date/up_to_now.json` | Published discharge history, whole network |
+| `discharges_to_date/up_to_now_offline.json` | Published offline-period history |
+| `discharges_to_date/timestamp.txt` | Last-updated stamp |
+| `discharge_histories/thames/<permit>.json` | Per-CSO discharge slices (what the site reads) |
+| `discharge_histories/thames_offline/<permit>.json` | Per-CSO offline slices |
+| `history_master/discharge_master.json` | Long-lived master, whole record |
+| `history_master/offline_master.json` | Long-lived offline master |
+| `history_master/backups/` | Dated copy of each master before it is overwritten |
+
+The master and the slices each live under their own top-level prefix deliberately: `discharges_to_date/` is emptied wholesale before each publish, which would otherwise delete them.
+
+The three layers are independent. The master is what makes the *update* incremental; the slices are what make the *download* small. `split_history.py` consumes whatever monolithic table was just published, so the two concerns compose without knowing about each other.
+
+To create the masters for the first time, seed them from the currently published files:
+
+```bash
+python seed_history_master.py --discharge up_to_now.json --offline up_to_now_offline.json
+```
+
+(`update_history.py` also falls back to a full rebuild when no master exists, so seeding is an optimisation rather than a prerequisite.)
 
 ## Source data 
 
