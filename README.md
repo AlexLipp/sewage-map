@@ -85,13 +85,19 @@ The master and the slices each live under their own top-level prefix deliberatel
 
 The three layers are independent. The master is what makes the *update* incremental; the slices are what make the *download* small. `split_history.py` consumes whatever monolithic table was just published, so the two concerns compose without knowing about each other.
 
-To create the masters for the first time, seed them from the currently published files:
+**The masters create themselves.** On a run where `history_master/` is empty, each
+table is seeded from its published counterpart in `discharges_to_date/` — that file
+is already a complete history in the same schema, so there is nothing to rebuild.
+No manual step is needed to deploy this, and losing a master is a recoverable
+inconvenience rather than a slow rebuild. Only if the published table is missing too
+does a run fall back to refetching everything from the API.
+
+`seed_history_master.py` remains for seeding a master by hand from a specific file,
+and validates it (schema, date range, duplicate event keys) before uploading:
 
 ```bash
-python seed_history_master.py --discharge up_to_now.json --offline up_to_now_offline.json
+python seed_history_master.py --discharge up_to_now.json --offline up_to_now_offline.json --dry-run
 ```
-
-(`update_history.py` also falls back to a full rebuild when no master exists, so seeding is an optimisation rather than a prerequisite.)
 
 ## Source data 
 
