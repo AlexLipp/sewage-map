@@ -13,6 +13,12 @@ from aux_funcs import (
     project_featurecollection_BNG_WGS84,
 )
 
+from split_history import (
+    AWS_SPLIT_DISCHARGE_DIR,
+    AWS_SPLIT_OFFLINE_DIR,
+    split_and_upload_history_file,
+)
+
 from poopy.companies import ThamesWater, WelshWater
 
 # Name of the bucket to upload to
@@ -217,6 +223,21 @@ def main():
         json_file_path=json_file_name,
         offline_json_file_path=offline_json_file_name,
         timestamp=now.isoformat(timespec="seconds"),
+    )
+
+    # The website reads one file per CSO rather than the whole table, so publish the
+    # per-CSO slices too. Split the files just written, so the slices are exactly what
+    # was uploaded.
+    print("Splitting history tables into one file per CSO...")
+    split_and_upload_history_file(
+        local_path=LOCAL_HISTORICAL_DATA_DIR + json_file_name,
+        prefix=AWS_SPLIT_DISCHARGE_DIR,
+        profile_name=PROFILE_NAME,
+    )
+    split_and_upload_history_file(
+        local_path=LOCAL_HISTORICAL_DATA_DIR + offline_json_file_name,
+        prefix=AWS_SPLIT_OFFLINE_DIR,
+        profile_name=PROFILE_NAME,
     )
 
     ### Commented out because experimented deemed too much work to bother with.... ###
