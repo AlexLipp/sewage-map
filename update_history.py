@@ -185,26 +185,47 @@ def upload_downstream_impact_info_files_to_s3(
     )
 
 
-def fetch_master_table(aws_filename: str, dry_run: bool) -> pd.DataFrame | None:
+def fetch_master_table(
+    aws_filename: str, published_filename: str, dry_run: bool
+) -> pd.DataFrame | None:
     """Download a history master table from S3.
 
-    Returns None if no master exists yet, in which case the caller should fall
-    back to a full rebuild.
+    If no master exists yet, seed one from the currently published history table.
+    That table is a complete history in exactly this schema - it is what previous
+    runs produced - so rebuilding it from ~150 paginated API calls would be
+    re-fetching what is already sitting in the bucket. This makes the first run
+    after deployment cheap, and means losing the master is a recoverable
+    inconvenience rather than a slow, failure-prone rebuild.
+
+    Returns None only when neither exists, in which case the caller has no choice
+    but a full rebuild.
     """
     local_path = LOCAL_MASTER_DIR + aws_filename
     if dry_run and os.path.exists(local_path):
         print(f"[dry-run] Using existing local master at {local_path}")
         return read_history_json(local_path)
 
-    found = download_file_from_s3(
+    if download_file_from_s3(
         bucket_name=BUCKET_NAME,
         object_name=AWS_MASTER_DIR + aws_filename,
         file_path=local_path,
         profile_name=PROFILE_NAME,
+    ):
+        return read_history_json(local_path)
+
+    print(
+        f"\033[93m! No master at {AWS_MASTER_DIR + aws_filename}. "
+        f"Seeding one from the published {published_filename} instead.\033[0m"
     )
-    if not found:
-        return None
-    return read_history_json(local_path)
+    if download_file_from_s3(
+        bucket_name=BUCKET_NAME,
+        object_name=AWS_HISTORICAL_DIR + published_filename,
+        file_path=local_path,
+        profile_name=PROFILE_NAME,
+    ):
+        return read_history_json(local_path)
+
+    return None
 
 
 def compute_window(
@@ -447,13 +468,16 @@ def update_history(tw: ThamesWater, now: datetime, args: argparse.Namespace) -> 
     else:
         print("Fetching history masters from AWS bucket...")
         discharge_master = fetch_master_table(
-            AWS_DISCHARGE_MASTER_FILENAME, args.dry_run
+            AWS_DISCHARGE_MASTER_FILENAME, AWS_JSON_FILENAME, args.dry_run
         )
-        offline_master = fetch_master_table(AWS_OFFLINE_MASTER_FILENAME, args.dry_run)
+        offline_master = fetch_master_table(
+            AWS_OFFLINE_MASTER_FILENAME, AWS_OFFLINE_JSON_FILENAME, args.dry_run
+        )
         if discharge_master is None:
             print(
-                "\033[93m! No history master found on S3. Falling back to a full "
-                "rebuild; this run will be slow but will seed the master.\033[0m"
+                "\033[93m! No history master on S3 and no published table to seed "
+                "from. Falling back to a full rebuild; this run will be slow but "
+                "will seed the master.\033[0m"
             )
             fetch_since = None
         else:
