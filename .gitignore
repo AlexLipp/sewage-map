@@ -1,9 +1,54 @@
-cron.log
-*.obj
-*.json
-*.txt
-*.png
-gmt.history
-*.geojson
-working.ipynb
+    # Python
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual environments and local settings
+.venv/
+venv/
+env/
+.env
+.vscode/
+.idea/
+
+# Raw water-company data (retain documentation and folder placeholders)
+/raw_data/**
+!/raw_data/README.md
+!/raw_data/*/
+!/raw_data/*/.gitkeep
+
+# Standardised CSVs and generated website JSON
+/clean_EIR_stopstartdata/input_stopstart_data/**
+!/clean_EIR_stopstartdata/input_stopstart_data/.gitkeep
+/clean_EIR_stopstartdata/output_jsons/**
+!/clean_EIR_stopstartdata/output_jsons/.gitkeep
+/clean_EIR_stopstartdata/unmatched_spill_events.txt
+
+# Legacy/local JSON-pipeline data (source and documentation remain visible)
+/json_cleaning_python_pipeline/outputs/**
+/json_cleaning_python_pipeline/raw_data/**
+/json_cleaning_python_pipeline/input/**
+/json_cleaning_python_pipeline/inputs/**
+/json_cleaning_python_pipeline/data/**
+/json_cleaning_python_pipeline/thames.json
+/json_cleaning_python_pipeline/.agents/
+
+# Temporary atomic-output and comparison directories
+/.baseline_stopstart/
+/.refactor_*/
+**/.staging-*/
+**/*.staging-*/
+**/.backup-*/
+**/*.backup-*/
+**/*.tmp-*
+
+# Existing generated project artefacts
+cron.log
+*.log
+*.obj
+*.png
+*.geojson
+gmt.history
+working.ipynb
